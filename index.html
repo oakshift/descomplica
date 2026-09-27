@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F6A6F">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Descomplica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
+<style>
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+:root{
+  --bg:#EDF1F0; --surface:#FFFFFF; --surface-2:#F5F8F7; --line:#D3DDDB;
+  --ink:#1A2627; --muted:#566A6B; --accent:#1F6A6F; --accent-ink:#FFFFFF;
+  --accent-soft:#D6EAE9; --amber:#A8600C; --amber-soft:#F6E6CE;
+  --danger:#A63A2B; --danger-soft:#F4DDD8;
+  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#101617; --surface:#172021; --surface-2:#1D2829; --line:#2C3A3B;
+    --ink:#E2EAE9; --muted:#9AABAB; --accent:#6CC4C4; --accent-ink:#0C1818;
+    --accent-soft:#1F3637; --amber:#E3A24A; --amber-soft:#3A2C17;
+    --danger:#E5826F; --danger-soft:#3C211C;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101617; --surface:#172021; --surface-2:#1D2829; --line:#2C3A3B;
+  --ink:#E2EAE9; --muted:#9AABAB; --accent:#6CC4C4; --accent-ink:#0C1818;
+  --accent-soft:#1F3637; --amber:#E3A24A; --amber-soft:#3A2C17;
+  --danger:#E5826F; --danger-soft:#3C211C;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--body);padding-inline:16px;padding-block:env(safe-area-inset-top,0px) calc(48px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:760px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:1.75rem;letter-spacing:-.01em}
+h2{font-size:1.25rem}
+h3{font-size:1.05rem}
+p{margin:0}
+a{color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:.875rem}
+.label{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+
+header.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;padding-block:20px 12px}
+#status{font-size:.8rem;padding:2px 10px;border-radius:99px;background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+#status.ok{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+#status.bad{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+
+nav.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;gap:4px;background:var(--bg);padding-block:8px;border-bottom:1px solid var(--line);margin-bottom:20px}
+nav.tabs button{flex:1 1 auto;min-width:0;font:700 .85rem var(--body);padding:10px 6px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+section.tab{display:grid;gap:24px}
+.block{display:grid;gap:10px}
+.block-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:2px}
+.stat b{font-family:var(--display);font-size:1.5rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat.warn b{color:var(--danger)}
+.stat.good b{color:var(--accent)}
+
+.list{display:grid;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.row{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .grow{flex:1;min-width:0;overflow-wrap:anywhere;display:grid;gap:3px}
+.row .title{font-weight:700}
+.empty{padding:16px;color:var(--muted)}
+.chip{display:inline-block;font-size:.75rem;font-weight:700;padding:1px 8px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.late{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.chip.today{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.row-actions{display:flex;gap:2px;flex:none}
+
+.task input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:none;margin:1px 0 0}
+.task.done .title{color:var(--muted);text-decoration:line-through}
+
+details.more > summary{cursor:pointer;font-weight:700;color:var(--muted);padding:4px 0;list-style-position:inside}
+details.more[open] > summary{margin-bottom:10px}
+
+form.f{display:grid;gap:12px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+label.fl{display:grid;gap:4px;font-size:.85rem;font-weight:700;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
+textarea{resize:vertical;min-height:64px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button.btn{font:700 .9rem var(--body);padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.btn.danger{color:var(--danger)}
+button.btn[data-armed]{background:var(--danger);color:#fff;border-color:var(--danger)}
+button.btn:disabled{opacity:.55;cursor:default}
+button.x{border:0;background:none;color:var(--muted);cursor:pointer;font:700 .8rem var(--body);padding:6px 8px;border-radius:6px}
+button.x:hover{background:var(--surface-2);color:var(--ink)}
+
+.tips{display:grid;gap:12px}
+.tips .panel h3{margin-bottom:6px}
+.tips ul{margin:0;padding-left:18px;display:grid;gap:4px}
+
+dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);padding:18px;width:min(520px,calc(100vw - 32px))}
+dialog::backdrop{background:rgb(0 0 0 / .4)}
+
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:.9rem;max-width:calc(100vw - 32px);z-index:20}
+ol.steps{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
+code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+@media (max-width:420px){ .stat b{font-size:1.25rem} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Descomplica</h1>
+      <p class="muted small" id="today"></p>
+    </div>
+    <span id="status">Só neste navegador</span>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button data-tab="agenda" aria-selected="true">Agenda</button>
+    <button data-tab="espera" aria-selected="false">Espera 48 h</button>
+    <button data-tab="dicas" aria-selected="false">Dicas</button>
+    <button data-tab="mais" aria-selected="false">Definições</button>
+  </nav>
+
+  <!-- ============ AGENDA ============ -->
+  <section class="tab" id="tab-agenda">
+    <div class="stats">
+      <div class="stat" id="st-hoje"><span class="label">Para hoje</span><b>0</b></div>
+      <div class="stat" id="st-semana"><span class="label">Esta semana</span><b>0</b></div>
+      <div class="stat good" id="st-poupado"><span class="label">Poupado</span><b>0 €</b></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>Agora</h2>
+        <button class="btn primary" id="btn-nova">+ Nova tarefa</button>
+      </div>
+      <div class="list" id="l-agora"></div>
+    </div>
+
+    <div class="block">
+      <h2>Próximos 7 dias</h2>
+      <div class="list" id="l-semana"></div>
+    </div>
+
+    <details class="more block">
+      <summary>Mais tarde (<span id="n-depois">0</span>)</summary>
+      <div class="list" id="l-depois"></div>
+    </details>
+
+    <details class="more block">
+      <summary>Feito recentemente</summary>
+      <div class="list" id="l-feito"></div>
+    </details>
+  </section>
+
+  <!-- ============ ESPERA 48H ============ -->
+  <section class="tab" id="tab-espera" hidden>
+    <div class="panel">
+      <form class="f" id="f-espera" autocomplete="off">
+        <div>
+          <h2>Regra das 48 horas</h2>
+          <p class="muted small">Antes de comprar algo que não é essencial, aponte aqui e espere dois dias. Se desistir, o valor conta como poupado.</p>
+        </div>
+        <div class="fields">
+          <label class="fl">O que quer comprar<input id="e-nome" required placeholder="Ex.: auscultadores novos"></label>
+          <label class="fl">Preço (€)<input id="e-preco" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="0,00"></label>
+        </div>
+        <div class="actions"><button class="btn primary" type="submit">Pôr em espera</button></div>
+      </form>
+    </div>
+    <div class="block">
+      <h2>Em espera</h2>
+      <div class="list" id="l-espera"></div>
+    </div>
+    <details class="more block">
+      <summary>Decididos</summary>
+      <div class="list" id="l-decididos"></div>
+    </details>
+  </section>
+
+  <!-- ============ DICAS ============ -->
+  <section class="tab" id="tab-dicas" hidden>
+    <div class="tips">
+      <div class="panel"><h3>Dinheiro: automatizar primeiro, pensar depois</h3><ul>
+        <li><strong>Pague-se a si primeiro:</strong> transferência automática para a poupança no dia do ordenado.</li>
+        <li><strong>Três contas ou envelopes:</strong> despesas fixas, dia a dia e poupança ou imprevistos.</li>
+        <li><strong>Fundo de emergência:</strong> 3 a 6 meses de despesas antes de investir.</li>
+        <li><strong>Regra das 48 horas</strong> para compras não essenciais (use o separador Espera 48 h).</li>
+        <li><strong>Auditoria de subscrições</strong> uma vez por ano.</li>
+      </ul></div>
+      <div class="panel"><h3>Contas da casa: renegociar uma vez, poupar todos os meses</h3><ul>
+        <li>Eletricidade e gás: compare no <a href="https://simulador.precos.erse.pt/" target="_blank" rel="noopener">simulador da ERSE</a>. Se gastar muito à noite, veja a bi-horária.</li>
+        <li>Telecomunicações: no fim da fidelização, peça melhores condições ou mude.</li>
+        <li>Seguros: peça cotações todos os anos e compare antes de renovar.</li>
+        <li>Crédito habitação: simule a transferência para outro banco ou renegoceie o spread.</li>
+      </ul></div>
+      <div class="panel"><h3>Compras e alimentação</h3><ul>
+        <li>Planeie as refeições da semana e vá às compras com lista.</li>
+        <li>Cozinhe em quantidade e congele porções.</li>
+        <li>Marcas próprias nos básicos.</li>
+        <li>Cartões de cliente só para o que já ia comprar.</li>
+      </ul></div>
+      <div class="panel"><h3>Burocracia e impostos</h3><ul>
+        <li>Peça sempre fatura com NIF e valide-a no <a href="https://faturas.portaldasfinancas.gov.pt/" target="_blank" rel="noopener">e-fatura</a>.</li>
+        <li>Débitos diretos nas contas fixas para não pagar multas por atraso.</li>
+        <li>Documentos importantes digitalizados numa pasta organizada.</li>
+        <li>Um "dia da papelada" por mês.</li>
+      </ul></div>
+      <div class="panel"><h3>Dia a dia e transportes</h3><ul>
+        <li>Regra dos 2 minutos: se demora menos, faça já.</li>
+        <li>Menos coisas, menos gestão: doe ou venda o que não usa há um ano.</li>
+        <li>Chaves, carteira e carregadores sempre no mesmo sítio.</li>
+        <li>Junte os recados numa só saída e faça a manutenção preventiva do carro.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============ DEFINIÇÕES ============ -->
+  <section class="tab" id="tab-mais" hidden>
+    <div class="panel">
+      <div class="block">
+        <h2>Lembretes</h2>
+        <p class="small">A forma mais fiável de ser avisado é pôr as tarefas no <strong>Proton Calendar</strong>: cada uma repete-se no dia certo e avisa, mesmo com esta app fechada.</p>
+        <div class="actions">
+          <button class="btn primary" id="btn-ics">Exportar para o calendário (.ics)</button>
+          <button class="btn" id="btn-notif">Ativar avisos da app</button>
+        </div>
+        <p class="muted small" id="notif-estado"></p>
+        <details>
+          <summary class="small" style="cursor:pointer;font-weight:700">Como pôr no Proton Calendar</summary>
+          <ol class="steps small">
+            <li>No <a href="https://calendar.proton.me/" target="_blank" rel="noopener">Proton Calendar</a> (no computador), crie um calendário novo chamado <code>Descomplica</code>.</li>
+            <li>Nas definições desse calendário, em <em>Notificações de eventos de dia inteiro</em>, escolha por exemplo <em>No próprio dia às 9:00</em>.</li>
+            <li>Aqui, carregue em <em>Exportar para o calendário</em>.</li>
+            <li>No Proton: <em>Definições → Calendários → Importar</em>, escolha o ficheiro <code>descomplica.ics</code> e o calendário <code>Descomplica</code>.</li>
+            <li>A app do Proton no telemóvel passa a avisar em cada data, e as tarefas repetem-se sozinhas.</li>
+          </ol>
+          <p class="muted small" style="margin-top:6px">Se mudar tarefas ou datas: apague o calendário <code>Descomplica</code>, crie-o de novo e volte a importar.</p>
+        </details>
+        <p class="muted small">Os avisos da app só aparecem quando a abre (ou volta a ela).</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <form class="f" id="f-cfg" autocomplete="off">
+        <h2>Onde se guardam os dados</h2>
+        <p class="small" id="cfg-estado"></p>
+        <details>
+          <summary class="small" style="cursor:pointer;font-weight:700">Como criar o token do GitHub</summary>
+          <ol class="steps small">
+            <li>Abra <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>.</li>
+            <li>Dê-lhe um nome, por exemplo <code>descomplica</code>, e escolha a validade máxima.</li>
+            <li>Em <em>Repository access</em>, escolha <em>Only select repositories</em> e selecione <code>descomplica-dados</code>.</li>
+            <li>Em <em>Permissions → Repository permissions → Contents</em>, escolha <em>Read and write</em>.</li>
+            <li>Carregue em <em>Generate token</em>, copie-o e cole-o aqui. Faça isto em cada dispositivo que usar.</li>
+          </ol>
+        </details>
+        <div class="fields">
+          <label class="fl">Repositório dos dados<input id="cfg-repo" placeholder="utilizador/descomplica-dados"></label>
+          <label class="fl">Token do GitHub<input id="cfg-token" type="password" placeholder="github_pat_…"></label>
+        </div>
+        <p class="muted small">O token fica guardado só neste navegador.</p>
+        <div class="actions">
+          <button class="btn primary" type="submit">Guardar e ligar</button>
+          <button class="btn danger" type="button" id="btn-desligar">Desligar</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="block">
+        <h2>Cópia e sugestões</h2>
+        <div class="actions">
+          <button class="btn" id="btn-backup">Descarregar cópia (.json)</button>
+          <button class="btn" id="btn-sementes">Repor tarefas sugeridas</button>
+        </div>
+        <p class="muted small">"Repor tarefas sugeridas" só volta a juntar as sugestões que tenha apagado; não mexe nas suas.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <form class="f" id="f-tarefa" method="dialog" autocomplete="off">
+    <h2 id="dlg-titulo">Nova tarefa</h2>
+    <label class="fl">Tarefa<input id="t-titulo" required></label>
+    <label class="fl">Nota<textarea id="t-nota"></textarea></label>
+    <div class="fields">
+      <label class="fl">Categoria<select id="t-cat"></select></label>
+      <label class="fl">Repetir<select id="t-rep"></select></label>
+      <label class="fl">Próxima vez<input id="t-prox" type="date" required></label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" type="submit" value="ok">Guardar</button>
+      <button class="btn" type="button" id="t-cancelar">Cancelar</button>
+      <span style="flex:1"></span>
+      <button class="btn danger" type="button" id="t-apagar">Apagar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" hidden></div>
+
+<script>
+const FILE = "dados.json";
+const DEFAULT_REPO = "oakshift/descomplica-dados";
+
+const CATS = [["dinheiro","Dinheiro"],["casa","Contas da casa"],["compras","Compras"],["papelada","Papelada"],["dia","Dia a dia"],["transportes","Transportes"]];
+const CAT_NOME = Object.fromEntries(CATS);
+const REPS = [["once:1","Uma vez"],["week:1","Todas as semanas"],["week:2","De 2 em 2 semanas"],["month:1","Todos os meses"],["month:3","De 3 em 3 meses"],["month:6","De 6 em 6 meses"],["year:1","Todos os anos"]];
+const REP_NOME = Object.fromEntries(REPS);
+
+/* Suggested tasks. Rule: {freq, int, day, month (1-12), wd (0=domingo)} */
+const SEMENTES = [
+  {id:"s-poupanca", cat:"dinheiro", titulo:"Confirmar a transferência para a poupança", nota:"Pague-se a si primeiro: confirme que a transferência automática saiu no dia do ordenado. Ajuste o dia desta tarefa ao seu ordenado.", freq:"month", int:1, day:1},
+  {id:"s-orcamento", cat:"dinheiro", titulo:"Rever o orçamento do mês", nota:"Compare o que gastou com o que planeou e ajuste o mês seguinte.", freq:"month", int:1, day:28},
+  {id:"s-emergencia", cat:"dinheiro", titulo:"Ver o progresso do fundo de emergência", nota:"Objetivo: 3 a 6 meses de despesas.", freq:"month", int:3, day:15},
+  {id:"s-subscricoes", cat:"dinheiro", titulo:"Auditoria de subscrições", nota:"Veja 3 meses de extrato e cancele o que não usa: streaming, ginásio, apps, seguros duplicados.", freq:"year", int:1, month:1, day:15},
+  {id:"s-energia", cat:"casa", titulo:"Comparar tarifários de eletricidade e gás", nota:"Use o simulador da ERSE. Se gastar muito à noite, veja a tarifa bi-horária.", freq:"year", int:1, month:10, day:1},
+  {id:"s-telecom", cat:"casa", titulo:"Rever o contrato de telecomunicações", nota:"Quando acaba a fidelização? Peça melhores condições ou mude. Precisa mesmo de TV e de todos os canais?", freq:"year", int:1, month:11, day:1},
+  {id:"s-seguros", cat:"casa", titulo:"Pedir cotações de seguros", nota:"Carro, casa, saúde. Compare antes de renovar; ajuste a data à renovação.", freq:"year", int:1, month:3, day:1},
+  {id:"s-credito", cat:"casa", titulo:"Simular o crédito habitação e o spread", nota:"Simule a transferência para outro banco ou renegoceie o spread. Apague se não tiver crédito.", freq:"year", int:1, month:6, day:1},
+  {id:"s-refeicoes", cat:"compras", titulo:"Planear as refeições da semana e fazer a lista", nota:"Menos desperdício e menos idas ao supermercado.", freq:"week", int:1, wd:0},
+  {id:"s-congelar", cat:"compras", titulo:"Cozinhar em quantidade e congelar porções", nota:"Poupa tempo e evita comida por entrega.", freq:"week", int:1, wd:0},
+  {id:"s-papelada", cat:"papelada", titulo:"Dia da papelada", nota:"Faturas, cartas, documentos para digitalizar, pagamentos pendentes. Tudo de uma vez.", freq:"month", int:1, day:10},
+  {id:"s-efatura", cat:"papelada", titulo:"Validar faturas no e-fatura", nota:"Confirme que as despesas estão na categoria certa (saúde, educação, habitação…).", freq:"month", int:3, day:20},
+  {id:"s-efatura-prazo", cat:"papelada", titulo:"Prazo: faturas pendentes no e-fatura", nota:"Último dia para validar as faturas pendentes do ano anterior: 25 de fevereiro.", freq:"year", int:1, month:2, day:20},
+  {id:"s-irs", cat:"papelada", titulo:"Entregar o IRS", nota:"Prazo de entrega: 1 de abril a 30 de junho. Veja se o IRS Automático se aplica.", freq:"year", int:1, month:4, day:1},
+  {id:"s-destralhar", cat:"dia", titulo:"Destralhar: doar ou vender o que não usa", nota:"Se não usou num ano, sai. OLX, Vinted ou doação.", freq:"month", int:3, day:1},
+  {id:"s-pneus", cat:"transportes", titulo:"Verificar a pressão dos pneus", nota:"Pneus com a pressão certa gastam menos combustível.", freq:"month", int:1, day:15},
+  {id:"s-revisao", cat:"transportes", titulo:"Marcar a revisão do carro", nota:"A manutenção preventiva sai mais barata do que as avarias. Ajuste a data.", freq:"year", int:1, month:5, day:1},
+  {id:"s-passe", cat:"transportes", titulo:"Ver se o passe compensa face ao carro", nota:"Some combustível, estacionamento e portagens de um mês e compare.", freq:"year", int:1, month:9, day:1}
+];
+
+const vazio = () => ({tarefas:[], historico:[], espera:[]});
+let S = vazio(), editId = null;
+
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = n => String(n).padStart(2,"0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const hoje = () => iso(new Date());
+const parse = s => { const [y,m,d] = String(s).split("-").map(Number); return new Date(y, (m||1)-1, d||1); };
+const fmt = (s, opts={day:"numeric",month:"short"}) => s ? parse(s).toLocaleDateString("pt-PT", opts) : "";
+const dias = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
+const diasMes = (y, m) => new Date(y, m+1, 0).getDate();
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const euros = n => (Number(n)||0).toLocaleString("pt-PT", {style:"currency", currency:"EUR", maximumFractionDigits: Number(n) % 1 ? 2 : 0});
+
+/* ---------- dates: repeating tasks keep their day of the month (dia) ---------- */
+function soma(s, freq, n, dia){
+  const d = parse(s);
+  if (freq === "week"){ d.setDate(d.getDate() + 7*n); return iso(d); }
+  const meses = freq === "year" ? 12*n : n;
+  const t = d.getMonth() + meses, y = d.getFullYear() + Math.floor(t/12), m = ((t%12)+12)%12;
+  return iso(new Date(y, m, Math.min(dia || d.getDate(), diasMes(y, m))));
+}
+function seguinte(t){
+  let p = t.prox; const h = hoje();
+  do p = soma(p, t.freq, t.int, t.dia); while (p <= h);
+  return p;
+}
+function primeira(r){
+  const h = new Date(); h.setHours(0,0,0,0);
+  if (r.freq === "week"){ const d = new Date(h); d.setDate(d.getDate() + ((r.wd - d.getDay() + 7) % 7)); return iso(d); }
+  if (r.freq === "month"){
+    let y = h.getFullYear(), m = h.getMonth(), d = new Date(y, m, Math.min(r.day, diasMes(y, m)));
+    if (d < h){ m++; if (m > 11){ m = 0; y++; } d = new Date(y, m, Math.min(r.day, diasMes(y, m))); }
+    return iso(d);
+  }
+  let y = h.getFullYear(), d = new Date(y, r.month-1, Math.min(r.day, diasMes(y, r.month-1)));
+  if (d < h) d = new Date(y+1, r.month-1, Math.min(r.day, diasMes(y+1, r.month-1)));
+  return iso(d);
+}
+const deSemente = s => ({id:s.id, cat:s.cat, titulo:s.titulo, nota:s.nota, freq:s.freq, int:s.int, dia:s.day || null, prox:primeira(s)});
+
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2800); }
+function setStatus(txt, cls){ const s = $("#status"); s.textContent = txt; s.className = cls || ""; }
+
+/* ---------- storage: GitHub repo or this browser ---------- */
+const ls = {
+  get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k){ try { localStorage.removeItem(k); } catch {} }
+};
+let cfg = ls.get("descomplica-cfg") || {repo: DEFAULT_REPO, token: ""};
+const online = () => !!(cfg.token && cfg.repo);
+
+const b64enc = str => { const b = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64dec = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, "")), c => c.charCodeAt(0)));
+
+class GhError extends Error { constructor(status, msg){ super(msg); this.status = status; } }
+async function gh(method, body){
+  const r = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${FILE}`, {
+    method, cache: "no-store",
+    headers: {"Authorization": `Bearer ${cfg.token}`, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(body ? {"Content-Type": "application/json"} : {})},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) throw new GhError(r.status, (await r.json().catch(() => ({}))).message || r.statusText);
+  return r.json();
+}
+async function ghLoad(){
+  try { const j = await gh("GET"); return {data: {...vazio(), ...JSON.parse(b64dec(j.content))}, sha: j.sha}; }
+  catch (e) { if (e.status === 404) return {data: vazio(), sha: null}; throw e; }
+}
+function ghMsg(e){
+  if (e?.status === 401) return "O token do GitHub não é válido ou expirou.";
+  if (e?.status === 403 || e?.status === 404) return "O token não tem acesso ao repositório dos dados. Confirme o nome e a permissão Contents: Read and write.";
+  return "Sem ligação ao GitHub. Tente outra vez.";
+}
+
+let busy = Promise.resolve();
+/* Apply a change to the freshest copy of the data and save it. Retries once if another device saved in between. */
+function mutate(fn, msg){
+  const run = async () => {
+    if (!online()){ fn(S); ls.set("descomplica-cache", S); renderAll(); return; }
+    setStatus("A guardar…");
+    for (let attempt = 0; attempt < 2; attempt++){
+      const {data, sha} = await ghLoad();
+      fn(data);
+      try {
+        await gh("PUT", {message: msg || "Atualizar Descomplica", content: b64enc(JSON.stringify(data, null, 1)), ...(sha ? {sha} : {})});
+        S = data; ls.set("descomplica-cache", S); renderAll(); setStatus("Guardado no GitHub", "ok"); return;
+      } catch (e) { if (!(e.status === 409 || e.status === 422) || attempt) throw e; }
+    }
+  };
+  busy = busy.then(run, run).catch(e => { console.error(e); setStatus("Erro ao guardar", "bad"); toast(online() ? ghMsg(e) : "Não foi possível guardar."); renderAll(); throw e; });
+  return busy;
+}
+async function reload(){
+  if (!online()) return;
+  try { setStatus("A sincronizar…"); const {data} = await ghLoad(); S = data; ls.set("descomplica-cache", S); renderAll(); setStatus("Sincronizado", "ok"); }
+  catch (e) { console.error(e); setStatus("Sem ligação", "bad"); toast(ghMsg(e)); }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible"){ reload(); avisar(); } });
+
+/* ---------- tabs ---------- */
+function showTab(name){
+  document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.querySelectorAll("section.tab").forEach(s => s.hidden = s.id !== `tab-${name}`);
+  ls.set("descomplica-tab", name);
+}
+document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => { showTab(b.dataset.tab); window.scrollTo({top:0}); }));
+
+/* ---------- render ---------- */
+function quando(p){
+  const n = dias(hoje(), p);
+  if (n < 0) return {txt: n === -1 ? "Ontem" : `Há ${-n} dias`, cls:"late"};
+  if (n === 0) return {txt:"Hoje", cls:"today"};
+  if (n === 1) return {txt:"Amanhã", cls:""};
+  if (n < 7) return {txt: parse(p).toLocaleDateString("pt-PT", {weekday:"long"}), cls:""};
+  return {txt: fmt(p, {day:"numeric", month:"short", year: parse(p).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined}), cls:""};
+}
+function linhaTarefa(t){
+  const q = quando(t.prox), rep = REP_NOME[`${t.freq}:${t.int}`] || `De ${t.int} em ${t.int}`;
+  return `<div class="row task" data-id="${esc(t.id)}">
+    <input type="checkbox" aria-label="Marcar como feito" data-feito="${esc(t.id)}">
+    <div class="grow">
+      <span class="title">${esc(t.titulo)}</span>
+      ${t.nota ? `<span class="muted small">${esc(t.nota)}</span>` : ""}
+      <div class="meta"><span class="chip ${q.cls}">${esc(q.txt)}</span><span class="chip">${esc(CAT_NOME[t.cat] || "Outra")}</span><span class="chip">${esc(rep)}</span></div>
+    </div>
+    <div class="row-actions">
+      ${dias(hoje(), t.prox) <= 0 ? `<button class="x" data-adiar="${esc(t.id)}" title="Adiar para amanhã">Amanhã</button>` : ""}
+      <button class="x" data-editar="${esc(t.id)}" title="Editar">Editar</button>
+    </div>
+  </div>`;
+}
+const lista = (el, rows, vazioTxt) => { el.innerHTML = rows.length ? rows.join("") : `<div class="empty">${vazioTxt}</div>`; };
+
+function renderAll(){
+  const h = hoje();
+  const ts = [...S.tarefas].sort((a, b) => a.prox.localeCompare(b.prox) || a.titulo.localeCompare(b.titulo));
+  const agora = ts.filter(t => t.prox <= h), semana = ts.filter(t => t.prox > h && dias(h, t.prox) <= 7), depois = ts.filter(t => dias(h, t.prox) > 7);
+  lista($("#l-agora"), agora.map(linhaTarefa), "Nada para hoje. Aproveite o dia.");
+  lista($("#l-semana"), semana.map(linhaTarefa), "Nada nos próximos 7 dias.");
+  lista($("#l-depois"), depois.map(linhaTarefa), "Nada.");
+  $("#n-depois").textContent = depois.length;
+  lista($("#l-feito"), S.historico.slice(0, 15).map(x => `<div class="row"><div class="grow"><span>${esc(x.titulo)}</span></div><span class="muted small">${esc(fmt(x.data))}</span></div>`), "Ainda nada.");
+
+  const poupado = S.espera.filter(e => e.estado === "desisti").reduce((s, e) => s + (Number(e.preco)||0), 0);
+  $("#st-hoje b").textContent = agora.length;
+  $("#st-hoje").classList.toggle("warn", agora.some(t => t.prox < h));
+  $("#st-semana b").textContent = semana.length;
+  $("#st-poupado b").textContent = euros(poupado);
+
+  const agoraMs = Date.now(), H48 = 48*3600e3;
+  const pend = S.espera.filter(e => !e.estado).sort((a, b) => a.criado.localeCompare(b.criado));
+  lista($("#l-espera"), pend.map(e => {
+    const falta = new Date(e.criado).getTime() + H48 - agoraMs;
+    const estado = falta > 0 ? `<span class="chip today">Faltam ${Math.ceil(falta/3600e3)} h</span>` : `<span class="chip">Já pode decidir</span>`;
+    return `<div class="row"><div class="grow"><span class="title">${esc(e.nome)}</span><div class="meta"><span class="chip">${esc(euros(e.preco))}</span>${estado}</div></div>
+      <div class="row-actions"><button class="x" data-desisti="${esc(e.id)}">Desisti</button><button class="x" data-comprei="${esc(e.id)}">${falta > 0 ? "Comprei na mesma" : "Comprei"}</button></div></div>`;
+  }), "Nada em espera.");
+  const dec = S.espera.filter(e => e.estado).sort((a, b) => (b.decidido||"").localeCompare(a.decidido||""));
+  lista($("#l-decididos"), dec.slice(0, 30).map(e => `<div class="row"><div class="grow"><span>${esc(e.nome)}</span></div><span class="chip ${e.estado === "desisti" ? "" : "today"}">${e.estado === "desisti" ? "Poupou " + esc(euros(e.preco)) : "Comprou"}</span></div>`), "Ainda nada.");
+
+  document.title = agora.length ? `(${agora.length}) Descomplica` : "Descomplica";
+  try { agora.length ? navigator.setAppBadge?.(agora.length) : navigator.clearAppBadge?.(); } catch {}
+}
+
+/* ---------- task actions ---------- */
+document.addEventListener("change", e => {
+  const id = e.target.dataset?.feito; if (!id) return;
+  e.target.closest(".row").classList.add("done"); e.target.disabled = true;
+  const t = S.tarefas.find(x => x.id === id);
+  mutate(d => {
+    const x = d.tarefas.find(y => y.id === id); if (!x) return;
+    d.historico.unshift({titulo: x.titulo, data: hoje()}); d.historico = d.historico.slice(0, 200);
+    if (x.freq === "once") d.tarefas = d.tarefas.filter(y => y.id !== id); else x.prox = seguinte(x);
+  }, `Feito: ${t?.titulo || ""}`).then(() => toast(t && t.freq !== "once" ? `Feito. Próxima vez: ${fmt(seguinte(t))}` : "Feito."), () => {});
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.adiar){ const id = b.dataset.adiar; const am = iso(new Date(Date.now() + 864e5)); mutate(d => { const x = d.tarefas.find(y => y.id === id); if (x) x.prox = am; }, "Adiar tarefa").catch(() => {}); }
+  if (b.dataset.editar) abrir(b.dataset.editar);
+  if (b.dataset.desisti || b.dataset.comprei){
+    const id = b.dataset.desisti || b.dataset.comprei, estado = b.dataset.desisti ? "desisti" : "comprei";
+    mutate(d => { const x = d.espera.find(y => y.id === id); if (x){ x.estado = estado; x.decidido = new Date().toISOString(); } }, estado === "desisti" ? "Desisti de uma compra" : "Comprei")
+      .then(() => { if (estado === "desisti") toast("Boa! Fica como poupado."); }, () => {});
+  }
+});
+
+/* ---------- task dialog ---------- */
+$("#t-cat").innerHTML = CATS.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+$("#t-rep").innerHTML = REPS.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+function abrir(id){
+  editId = id || null;
+  const t = id ? S.tarefas.find(x => x.id === id) : null;
+  $("#dlg-titulo").textContent = t ? "Editar tarefa" : "Nova tarefa";
+  $("#t-titulo").value = t?.titulo || ""; $("#t-nota").value = t?.nota || "";
+  $("#t-cat").value = t?.cat || "dia";
+  const rep = t ? `${t.freq}:${t.int}` : "month:1";
+  if (!REP_NOME[rep]) $("#t-rep").insertAdjacentHTML("beforeend", `<option value="${rep}">De ${t.int} em ${t.int}</option>`);
+  $("#t-rep").value = rep;
+  $("#t-prox").value = t?.prox || hoje();
+  $("#t-apagar").hidden = !t; delete $("#t-apagar").dataset.armed; $("#t-apagar").textContent = "Apagar";
+  $("#dlg").showModal(); if (!t) $("#t-titulo").focus();
+}
+$("#btn-nova").addEventListener("click", () => abrir());
+$("#t-cancelar").addEventListener("click", () => $("#dlg").close());
+$("#f-tarefa").addEventListener("submit", () => {
+  const [freq, int] = $("#t-rep").value.split(":");
+  const v = {titulo: $("#t-titulo").value.trim(), nota: $("#t-nota").value.trim(), cat: $("#t-cat").value, freq, int: Number(int), prox: $("#t-prox").value, dia: parse($("#t-prox").value).getDate()};
+  if (!v.titulo || !v.prox) return;
+  const id = editId;
+  mutate(d => {
+    const x = id && d.tarefas.find(y => y.id === id);
+    if (x) Object.assign(x, v); else d.tarefas.push({id: uid(), ...v});
+  }, id ? `Editar: ${v.titulo}` : `Nova tarefa: ${v.titulo}`).catch(() => {});
+});
+$("#t-apagar").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
+  const id = editId; $("#dlg").close();
+  mutate(d => { d.tarefas = d.tarefas.filter(y => y.id !== id); }, "Apagar tarefa").then(() => toast("Tarefa apagada."), () => {});
+});
+
+/* ---------- 48h ---------- */
+$("#f-espera").addEventListener("submit", e => {
+  e.preventDefault();
+  const nome = $("#e-nome").value.trim(), preco = Number(String($("#e-preco").value).replace(",", "."));
+  if (!nome) return;
+  mutate(d => { d.espera.push({id: uid(), nome, preco, criado: new Date().toISOString(), estado: null}); }, `Em espera: ${nome}`)
+    .then(() => { e.target.reset(); toast("Em espera. Volte daqui a 48 horas."); }, () => {});
+});
+
+/* ---------- reminders ---------- */
+function avisar(){
+  const n = S.tarefas.filter(t => t.prox <= hoje()).length;
+  if (!n || !("Notification" in window) || Notification.permission !== "granted" || ls.get("descomplica-aviso") === hoje()) return;
+  ls.set("descomplica-aviso", hoje());
+  const body = n === 1 ? "Tem 1 tarefa para hoje." : `Tem ${n} tarefas para hoje.`;
+  const opts = {body, icon: "icon-192.png", badge: "icon-192.png", tag: "descomplica"};
+  (navigator.serviceWorker?.ready ?? Promise.reject()).then(r => r.showNotification("Descomplica", opts)).catch(() => { try { new Notification("Descomplica", opts); } catch {} });
+}
+function renderNotif(){
+  const el = $("#notif-estado");
+  if (!("Notification" in window)){ el.textContent = "Este navegador não suporta avisos. No iPhone, primeiro adicione a app ao ecrã principal."; $("#btn-notif").disabled = true; return; }
+  el.textContent = {granted:"Avisos ativos neste dispositivo.", denied:"Avisos bloqueados. Ative-os nas definições do navegador.", default:""}[Notification.permission];
+  $("#btn-notif").disabled = Notification.permission !== "default";
+}
+$("#btn-notif").addEventListener("click", async () => { await Notification.requestPermission(); renderNotif(); ls.del("descomplica-aviso"); avisar(); });
+
+const icsTxt = s => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const icsFold = l => { const out = []; while (l.length > 73){ out.push(l.slice(0, 73)); l = " " + l.slice(73); } out.push(l); return out.join("\r\n"); };
+$("#btn-ics").addEventListener("click", () => {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const FREQ = {week:"WEEKLY", month:"MONTHLY", year:"YEARLY"};
+  const L = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Descomplica//PT","CALSCALE:GREGORIAN","X-WR-CALNAME:Descomplica"];
+  for (const t of S.tarefas){
+    const d = t.prox.replace(/-/g, ""), fim = iso(new Date(parse(t.prox).getTime() + 864e5 + 3600e3)).replace(/-/g, "");
+    L.push("BEGIN:VEVENT", `UID:${t.id}@descomplica`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${fim}`);
+    if (FREQ[t.freq]) L.push(`RRULE:FREQ=${FREQ[t.freq]};INTERVAL=${t.int}`);
+    L.push(`SUMMARY:${icsTxt(t.titulo)}`);
+    if (t.nota) L.push(`DESCRIPTION:${icsTxt(t.nota)}`);
+    L.push("BEGIN:VALARM","ACTION:DISPLAY",`DESCRIPTION:${icsTxt(t.titulo)}`,"TRIGGER;RELATED=START:PT9H","END:VALARM","END:VEVENT");
+  }
+  L.push("END:VCALENDAR");
+  baixar(new Blob([L.map(icsFold).join("\r\n") + "\r\n"], {type:"text/calendar"}), "descomplica.ics");
+  toast("Abra o ficheiro para o juntar ao calendário.");
+});
+function baixar(blob, nome){ const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nome; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
+$("#btn-backup").addEventListener("click", () => baixar(new Blob([JSON.stringify(S, null, 1)], {type:"application/json"}), `descomplica-${hoje()}.json`));
+$("#btn-sementes").addEventListener("click", () => {
+  mutate(d => { const tem = new Set(d.tarefas.map(t => t.id)); SEMENTES.filter(s => !tem.has(s.id)).forEach(s => d.tarefas.push(deSemente(s))); }, "Repor tarefas sugeridas")
+    .then(() => toast("Sugestões repostas."), () => {});
+});
+
+/* ---------- settings ---------- */
+function renderCfg(){
+  $("#cfg-repo").value = cfg.repo || ""; $("#cfg-token").value = cfg.token || "";
+  $("#cfg-estado").innerHTML = online()
+    ? `Os dados estão no repositório privado <strong>${esc(cfg.repo)}</strong>. Cada alteração fica guardada como um commit.`
+    : `Os dados estão <strong>só neste navegador</strong>. Crie um token do GitHub (instruções abaixo) para os guardar no seu repositório privado e os ver em todos os dispositivos.`;
+  $("#btn-desligar").hidden = !cfg.token;
+}
+$("#f-cfg").addEventListener("submit", async e => {
+  e.preventDefault();
+  cfg = {repo: $("#cfg-repo").value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "") || DEFAULT_REPO, token: $("#cfg-token").value.trim()};
+  ls.set("descomplica-cfg", cfg); renderCfg();
+  if (online()){ await reload(); if ($("#status").className === "ok") toast("Ligado ao GitHub."); }
+});
+$("#btn-desligar").addEventListener("click", () => {
+  cfg = {repo: cfg.repo, token: ""}; ls.set("descomplica-cfg", cfg); renderCfg(); setStatus("Só neste navegador"); toast("Token apagado deste navegador.");
+});
+
+/* ---------- start ---------- */
+$("#today").textContent = new Date().toLocaleDateString("pt-PT", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+S = {...vazio(), ...(ls.get("descomplica-cache") || {})};
+if (!online() && !ls.get("descomplica-cache")){ S.tarefas = SEMENTES.map(deSemente); ls.set("descomplica-cache", S); }
+showTab(ls.get("descomplica-tab") || "agenda");
+renderCfg(); renderNotif(); renderAll();
+if (online()) reload().then(avisar); else avisar();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+setInterval(renderAll, 10 * 60e3);
+</script>
+</body>
+</html>

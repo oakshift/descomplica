@@ -67,9 +67,9 @@ section.tab{display:grid;gap:24px}
 .block-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
 
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:2px}
-.stat b{font-family:var(--display);font-size:1.5rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat b{font-family:var(--display);font-size:1.5rem;font-variant-numeric:tabular-nums;line-height:1.1;overflow-wrap:anywhere}
 .stat.warn b{color:var(--danger)}
 .stat.good b{color:var(--accent)}
 
@@ -115,6 +115,10 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:.9rem;max-width:calc(100vw - 32px);z-index:20}
 .orc .row{align-items:center}
 .orc .gasto{flex:none;width:6.5rem;text-align:right;font-variant-numeric:tabular-nums}
+.barra{height:12px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.barra span{display:block;height:100%;width:0;background:var(--accent);border-radius:99px}
+.valor{flex:none;font-variant-numeric:tabular-nums;font-weight:700;text-align:right}
+.valor.neg{color:var(--danger)}
 .orc-mov .row{align-items:center}
 .orc-mov select{flex:none;width:11rem;padding:7px 8px;font-size:.85rem}
 @media (max-width:420px){ .orc-mov .row{flex-wrap:wrap} .orc-mov select{width:100%} }
@@ -122,7 +126,7 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 .grupo-head span{font-variant-numeric:tabular-nums}
 ol.steps{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
 code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
-@media (max-width:420px){ .stat b{font-size:1.25rem} nav.tabs{gap:2px} nav.tabs button{font-size:.78rem;padding:10px 4px} }
+@media (max-width:420px){ .stat b{font-size:1.25rem} nav.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px} nav.tabs button{padding:8px 4px} }
 </style>
 </head>
 <body>
@@ -138,6 +142,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
   <nav class="tabs" role="tablist">
     <button data-tab="agenda" aria-selected="true">Agenda</button>
     <button data-tab="orcamento" aria-selected="false">Orçamento</button>
+    <button data-tab="patrimonio" aria-selected="false">Património</button>
     <button data-tab="espera" aria-selected="false">Espera 48 h</button>
     <button data-tab="dicas" aria-selected="false">Dicas</button>
     <button data-tab="mais" aria-selected="false">Definições</button>
@@ -220,6 +225,42 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <details class="more block">
       <summary>Movimentos importados do mês (<span id="n-movs">0</span>)</summary>
       <div class="list orc-mov" id="o-movs"></div>
+    </details>
+  </section>
+
+  <!-- ============ PATRIMÓNIO ============ -->
+  <section class="tab" id="tab-patrimonio" hidden>
+    <div class="stats">
+      <div class="stat" id="p-liquido"><span class="label">Património</span><b>0 €</b></div>
+      <div class="stat" id="p-investido"><span class="label">Investido</span><b>0 €</b></div>
+      <div class="stat good" id="p-emerg"><span class="label">Emergência</span><b>0%</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="block">
+        <h2>Fundo de emergência</h2>
+        <div class="barra" role="progressbar" aria-label="Fundo de emergência" aria-valuemin="0" aria-valuemax="100" id="p-barra"><span></span></div>
+        <p class="small" id="p-emerg-txt"></p>
+        <div class="fields">
+          <label class="fl">Despesas essenciais por mês (€)<input id="p-essenciais" type="number" min="0" step="1" inputmode="decimal"></label>
+          <label class="fl">Meses de reserva<input id="p-meses" type="number" min="1" max="12" step="1" inputmode="numeric"></label>
+        </div>
+        <p class="muted small">Conta o dinheiro das contas marcadas como fundo de emergência. A conta do dia a dia não conta: é para gastar.</p>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>Contas, investimentos e dívidas</h2>
+        <button class="btn primary" id="btn-conta">+ Nova</button>
+      </div>
+      <p class="muted small" id="p-aviso"></p>
+      <div id="p-grupos" class="block"></div>
+    </div>
+
+    <details class="more block">
+      <summary>Evolução por mês</summary>
+      <div class="list" id="p-hist"></div>
     </details>
   </section>
 
@@ -372,6 +413,27 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
   </form>
 </dialog>
 
+<dialog id="dlg-conta">
+  <form class="f" id="f-conta" method="dialog" autocomplete="off">
+    <h2 id="c-titulo">Nova conta</h2>
+    <label class="fl">Nome<input id="c-nome" required placeholder="Ex.: PPR, conta poupança, casa"></label>
+    <label class="fl">Nota<textarea id="c-nota"></textarea></label>
+    <div class="fields">
+      <label class="fl">Tipo<select id="c-tipo"></select></label>
+      <label class="fl">Valor hoje (€)<input id="c-valor" type="number" step="0.01" inputmode="decimal" placeholder="Por atualizar"></label>
+      <label class="fl">Entra por mês (€)<input id="c-mensal" type="number" min="0" step="1" inputmode="decimal"></label>
+    </div>
+    <label class="fl">Nome no extrato do Santander (opcional)<input id="c-extrato" placeholder="Ex.: DEPÓSITOS À ORDEM"></label>
+    <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="c-emerg" style="width:auto"> Conta para o fundo de emergência</label>
+    <div class="actions">
+      <button class="btn primary" type="submit" value="ok">Guardar</button>
+      <button class="btn" type="button" id="c-cancelar">Cancelar</button>
+      <span style="flex:1"></span>
+      <button class="btn danger" type="button" id="c-apagar">Apagar</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-linha">
   <form class="f" id="f-linha" method="dialog" autocomplete="off">
     <h2 id="l-titulo">Nova categoria</h2>
@@ -429,8 +491,12 @@ const GRUPO_NOME = Object.fromEntries(GRUPOS);
 
 /* orcamento.regras: [{re, linha}] in order, first match wins; linha "ignorar" = not an expense.
    orcamento.movimentos: {"2026-09": [{k, data, desc, valor, linha}]}; valor > 0 is money out. */
-const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}}});
-const completo = d => { const v = vazio(); return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}}; };
+/* patrimonio.contas: [{id, nome, tipo, valor (null = por atualizar; dívidas em positivo), data, mensal, emergencia, extrato, nota}];
+   extrato = the line name in the statement's "Resumo das Contas", so importing the PDF updates it.
+   patrimonio.historico: [{mes, ativos, dividas, emergencia}], one per month, the state when last changed that month. */
+const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}},
+  patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0}});
+const completo = d => { const v = vazio(); return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}, patrimonio: {...v.patrimonio, ...(d.patrimonio || {})}}; };
 let S = vazio(), editId = null;
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -593,7 +659,7 @@ function renderAll(){
   const dec = S.espera.filter(e => e.estado).sort((a, b) => (b.decidido||"").localeCompare(a.decidido||""));
   lista($("#l-decididos"), dec.slice(0, 30).map(e => `<div class="row"><div class="grow"><span>${esc(e.nome)}</span></div><span class="chip ${e.estado === "desisti" ? "" : "today"}">${e.estado === "desisti" ? "Poupou " + esc(euros(e.preco)) : "Comprou"}</span></div>`), "Ainda nada.");
 
-  renderOrc();
+  renderOrc(); renderPat();
 
   document.title = agora.length ? `(${agora.length}) Descomplica` : "Descomplica";
   try { agora.length ? navigator.setAppBadge?.(agora.length) : navigator.clearAppBadge?.(); } catch {}
@@ -795,10 +861,11 @@ async function lerXls(buf){
     const data = dataIso(m[1], m[2], m[3]);
     out.push({k: `c|${r[iMov]}|${data}|${v}`, data, desc: String(r[iDesc]).trim().replace(/\s+/g, " "), valor: v});
   }
-  return out;
+  return {movs: out, saldos: []};
 }
 
-/* Account statement (.pdf): lines "dd-mm  dd-mm  Descrição  Valor  Saldo"; the year comes from "PERÍODO DE … A yyyy-mm-dd". */
+/* Account statement (.pdf): lines "dd-mm  dd-mm  Descrição  Valor  Saldo"; the year comes from "PERÍODO DE … A yyyy-mm-dd".
+   The "Resumo das Contas" lines ("Descrição  EUR  Valor  dd-mm") give the balances used in Património. */
 async function lerPdf(buf){
   await script(LIBS.pdf);
   pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfWorker;
@@ -830,7 +897,13 @@ async function lerPdf(buf){
     const base = `a|${data}|${desc}|${v}`; vistos[base] = (vistos[base] || 0) + 1;
     out.push({k: `${base}|${vistos[base]}`, data, desc, valor: v});
   }
-  return out;
+  const saldos = [];
+  for (const l of linhas){
+    const ps = l.trim().split(/\s{2,}/), i = ps.indexOf("EUR"), d = (ps[i + 2] || "").match(/^(\d\d)-(\d\d)$/);
+    if (i < 1 || !d || !/^-?[\d.]+,\d\d$/.test(ps[i + 1] || "")) continue;
+    saldos.push({rotulo: ps[i - 1], valor: Math.abs(valorPt(ps[i + 1])), data: dataIso(d[1], d[2], Number(d[2]) > mesFim ? anoFim - 1 : anoFim)});
+  }
+  return {movs: out, saldos};
 }
 
 function classificar(regras, desc){
@@ -854,14 +927,15 @@ function recalcular(o, mes){
 $("#btn-imp-mov").addEventListener("click", () => $("#f-imp-mov").click());
 $("#f-imp-mov").addEventListener("change", async e => {
   const fs = [...e.target.files]; e.target.value = ""; if (!fs.length) return;
-  let movs = [];
+  let movs = [], saldos = [];
   try {
     toast("A ler os ficheiros…");
-    for (const f of fs){ const buf = await f.arrayBuffer(); movs = movs.concat(/\.pdf$/i.test(f.name) ? await lerPdf(buf) : await lerXls(buf)); }
+    for (const f of fs){ const buf = await f.arrayBuffer(), r = /\.pdf$/i.test(f.name) ? await lerPdf(buf) : await lerXls(buf); movs = movs.concat(r.movs); saldos = saldos.concat(r.saldos); }
   } catch (err) { console.error(err); toast(err.message || "Não foi possível ler o ficheiro."); return; }
-  let novos = 0, porClass = 0; const meses = new Set();
+  let novos = 0, porClass = 0, saldosNovos = 0; const meses = new Set();
   mutate(d => {
     const o = d.orcamento; novos = porClass = 0;
+    saldosNovos = aplicarSaldos(d.patrimonio, saldos);
     for (const mv of movs){
       const mes = mv.data.slice(0, 7), lista = o.movimentos[mes] ||= [];
       if (lista.some(x => x.k === mv.k)) continue;
@@ -871,7 +945,8 @@ $("#f-imp-mov").addEventListener("change", async e => {
     meses.forEach(m => recalcular(o, m));
   }, `Orçamento: importar ${movs.length} movimentos`).then(() => {
     const ult = [...meses].sort().at(-1); if (ult){ mesSel = ult; $("#o-mes").value = ult; renderOrc(); }
-    toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}.` : "Nada de novo: estes movimentos já estavam importados.");
+    const sal = saldosNovos ? ` ${saldosNovos} saldos atualizados no Património.` : "";
+    toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}.${sal}` : `Nada de novo: estes movimentos já estavam importados.${sal}`);
   }, () => {});
 });
 
@@ -905,6 +980,102 @@ document.addEventListener("change", e => {
     }
     tocados.forEach(m => recalcular(o, m));
   }, `Orçamento: classificar ${S.orcamento.movimentos[mes]?.find(x => x.k === k)?.desc || ""}`).catch(() => {});
+});
+
+/* ---------- património: accounts, investments, property and debts ---------- */
+const TIPOS = [["liquidez","Contas e poupança"],["investimento","Investimentos"],["imovel","Imóveis"],["outro","Outros bens"],["divida","Dívidas"]];
+const TIPO_NOME = Object.fromEntries(TIPOS);
+let editConta = null;
+
+function totais(p){
+  const com = p.contas.filter(c => c.valor != null);
+  const soma = f => com.filter(f).reduce((s, c) => s + num(c.valor), 0);
+  return {ativos: soma(c => c.tipo !== "divida"), dividas: soma(c => c.tipo === "divida"), investido: soma(c => c.tipo === "investimento"), emergencia: soma(c => c.emergencia && c.tipo !== "divida")};
+}
+/* One snapshot per month: the latest state seen that month. */
+function fotografia(p){
+  const t = totais(p), mes = mesAtual(), r = {mes, ativos: Math.round(t.ativos), dividas: Math.round(t.dividas), emergencia: Math.round(t.emergencia)};
+  p.historico = [...p.historico.filter(h => h.mes !== mes), r].sort((a, b) => a.mes.localeCompare(b.mes));
+}
+/* Balances read from a statement update the accounts whose "extrato" name matches, if newer. */
+function aplicarSaldos(p, saldos){
+  let n = 0;
+  for (const s of saldos){
+    const c = p.contas.find(c => c.extrato && s.rotulo.toUpperCase().includes(c.extrato.toUpperCase()));
+    if (!c || (c.data && c.data > s.data)) continue;
+    if (c.valor !== s.valor || c.data !== s.data){ c.valor = s.valor; c.data = s.data; n++; }
+  }
+  if (n) fotografia(p);
+  return n;
+}
+
+function renderPat(){
+  const p = S.patrimonio, t = totais(p), liquido = t.ativos - t.dividas;
+  const meta = num(p.essenciais) * (num(p.mesesEmergencia) || 6), pct = meta ? Math.min(100, Math.round(t.emergencia / meta * 100)) : 0;
+  const ritmo = p.contas.filter(c => c.emergencia).reduce((s, c) => s + num(c.mensal), 0), falta = Math.max(0, meta - t.emergencia);
+  $("#p-liquido b").textContent = euros(Math.round(liquido));
+  $("#p-liquido").classList.toggle("warn", liquido < 0);
+  $("#p-investido b").textContent = euros(Math.round(t.investido));
+  $("#p-emerg b").textContent = `${pct}%`;
+  $("#p-barra span").style.width = `${pct}%`; $("#p-barra").setAttribute("aria-valuenow", pct);
+  $("#p-emerg-txt").innerHTML = !meta ? "Indique as despesas essenciais por mês para calcular o objetivo." :
+    `<strong>${esc(euros(Math.round(t.emergencia)))}</strong> de ${esc(euros(Math.round(meta)))} (${num(p.mesesEmergencia) || 6} meses de despesas essenciais). ` +
+    (!falta ? "Objetivo cumprido: o que poupar a mais pode ir para investimentos ou amortizar o crédito." :
+      ritmo ? `Faltam ${esc(euros(Math.round(falta)))}: a ${esc(euros(ritmo))} por mês, chega lá em ${Math.ceil(falta / ritmo)} meses.` :
+      `Faltam ${esc(euros(Math.round(falta)))}. Indique quanto entra por mês na conta do fundo para ver quando chega lá.`);
+  if (document.activeElement !== $("#p-essenciais")) $("#p-essenciais").value = p.essenciais || "";
+  if (document.activeElement !== $("#p-meses")) $("#p-meses").value = p.mesesEmergencia || 6;
+  const sem = p.contas.filter(c => c.valor == null);
+  $("#p-aviso").textContent = sem.length ? `Por atualizar: ${sem.map(c => c.nome).join(", ")}. Os totais ainda não os contam.` : "";
+  $("#p-grupos").innerHTML = TIPOS.map(([tp, nome]) => {
+    const cs = p.contas.filter(c => (c.tipo || "outro") === tp); if (!cs.length) return "";
+    const tot = cs.reduce((s, c) => s + num(c.valor), 0), div = tp === "divida";
+    return `<div class="block"><div class="grupo-head"><h3>${esc(nome)}</h3><span class="muted small">${div ? "−" : ""}${esc(euros(Math.round(tot)))}</span></div><div class="list">${cs.map(c => `
+      <div class="row"><div class="grow">
+        <span class="title">${esc(c.nome)}</span>
+        ${c.nota ? `<span class="muted small">${esc(c.nota)}</span>` : ""}
+        <div class="meta">${c.data ? `<span class="chip">${esc(fmt(c.data, {day:"numeric", month:"short", year:"numeric"}))}</span>` : ""}${num(c.mensal) ? `<span class="chip">+${esc(euros(c.mensal))}/mês</span>` : ""}${c.emergencia ? `<span class="chip today">Emergência</span>` : ""}${c.extrato ? `<span class="chip">Do extrato</span>` : ""}</div>
+      </div>
+      <span class="valor ${div ? "neg" : ""}">${c.valor == null ? `<span class="chip late">Por atualizar</span>` : (div ? "−" : "") + esc(euros(c.valor))}</span>
+      <div class="row-actions"><button class="x" data-conta="${esc(c.id)}">Editar</button></div></div>`).join("")}</div></div>`;
+  }).join("") || `<div class="list"><div class="empty">Ainda sem contas.</div></div>`;
+  lista($("#p-hist"), [...p.historico].reverse().map(h => `<div class="row"><div class="grow"><span class="title">${esc(fmt(h.mes + "-01", {month:"long", year:"numeric"}))}</span>
+    <span class="muted small">Bens ${esc(euros(h.ativos))} · dívidas ${esc(euros(h.dividas))} · emergência ${esc(euros(h.emergencia))}</span></div><span class="valor">${esc(euros(h.ativos - h.dividas))}</span></div>`), "Ainda sem registos.");
+}
+
+$("#p-essenciais").addEventListener("change", e => { const v = num(e.target.value); mutate(d => { d.patrimonio.essenciais = v; }, "Património: despesas essenciais").catch(() => {}); });
+$("#p-meses").addEventListener("change", e => { const v = Math.max(1, Math.round(num(e.target.value)) || 6); mutate(d => { d.patrimonio.mesesEmergencia = v; }, "Património: meses de reserva").catch(() => {}); });
+
+$("#c-tipo").innerHTML = TIPOS.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+function abrirConta(id){
+  editConta = id || null;
+  const c = id ? S.patrimonio.contas.find(x => x.id === id) : null;
+  $("#c-titulo").textContent = c ? "Editar" : "Nova conta";
+  $("#c-nome").value = c?.nome || ""; $("#c-nota").value = c?.nota || ""; $("#c-tipo").value = c?.tipo || "liquidez";
+  $("#c-valor").value = c?.valor ?? ""; $("#c-mensal").value = c?.mensal || ""; $("#c-extrato").value = c?.extrato || ""; $("#c-emerg").checked = !!c?.emergencia;
+  $("#c-apagar").hidden = !c; delete $("#c-apagar").dataset.armed; $("#c-apagar").textContent = "Apagar";
+  $("#dlg-conta").showModal(); if (!c) $("#c-nome").focus();
+}
+document.addEventListener("click", e => { const b = e.target.closest("button[data-conta]"); if (b) abrirConta(b.dataset.conta); });
+$("#btn-conta").addEventListener("click", () => abrirConta());
+$("#c-cancelar").addEventListener("click", () => $("#dlg-conta").close());
+$("#f-conta").addEventListener("submit", () => {
+  const raw = $("#c-valor").value.trim();
+  const v = {nome: $("#c-nome").value.trim(), nota: $("#c-nota").value.trim(), tipo: $("#c-tipo").value, valor: raw === "" ? null : Math.abs(num(raw)), mensal: num($("#c-mensal").value), extrato: $("#c-extrato").value.trim(), emergencia: $("#c-emerg").checked};
+  if (!v.nome) return;
+  const id = editConta;
+  mutate(d => {
+    const p = d.patrimonio, x = id && p.contas.find(y => y.id === id);
+    if (!x || x.valor !== v.valor) v.data = hoje();
+    if (x) Object.assign(x, v); else p.contas.push({id: uid(), ...v});
+    fotografia(p);
+  }, `Património: ${v.nome}`).catch(() => {});
+});
+$("#c-apagar").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
+  const id = editConta; $("#dlg-conta").close();
+  mutate(d => { d.patrimonio.contas = d.patrimonio.contas.filter(y => y.id !== id); fotografia(d.patrimonio); }, "Património: apagar").then(() => toast("Apagado."), () => {});
 });
 
 /* ---------- reminders ---------- */

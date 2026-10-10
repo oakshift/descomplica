@@ -115,6 +115,9 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:.9rem;max-width:calc(100vw - 32px);z-index:20}
 .orc .row{align-items:center}
 .orc .gasto{flex:none;width:6.5rem;text-align:right;font-variant-numeric:tabular-nums}
+.orc-mov .row{align-items:center}
+.orc-mov select{flex:none;width:11rem;padding:7px 8px;font-size:.85rem}
+@media (max-width:420px){ .orc-mov .row{flex-wrap:wrap} .orc-mov select{width:100%} }
 .grupo-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
 .grupo-head span{font-variant-numeric:tabular-nums}
 ol.steps{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
@@ -188,6 +191,23 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <p class="muted small" id="o-resumo" style="margin-top:10px"></p>
     </div>
 
+    <div class="panel">
+      <div class="block">
+        <h2>Importar do banco</h2>
+        <p class="muted small">Escolha os ficheiros descarregados do netbanco: movimentos do cartão (.xls) e extrato da conta (.pdf). São lidos só neste aparelho e os gastos de cada mês ficam preenchidos. Importar o mesmo ficheiro duas vezes não duplica nada.</p>
+        <div class="actions">
+          <button class="btn primary" id="btn-imp-mov">Importar ficheiros</button>
+          <input type="file" id="f-imp-mov" multiple accept=".xls,.xlsx,.pdf" hidden>
+        </div>
+      </div>
+    </div>
+
+    <div class="block" id="o-classificar-wrap" hidden>
+      <h2>Por classificar (<span id="n-classificar">0</span>)</h2>
+      <p class="muted small">Escolha a categoria. A app lembra-se da escolha para os próximos movimentos iguais.</p>
+      <div class="list orc-mov" id="o-classificar"></div>
+    </div>
+
     <div class="block">
       <div class="block-head">
         <h2>Tetos por categoria</h2>
@@ -196,6 +216,11 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <p class="muted small">Escreva quanto gastou em cada categoria no mês escolhido. Fica a vermelho o que passar do teto.</p>
       <div id="o-grupos" class="block"></div>
     </div>
+
+    <details class="more block">
+      <summary>Movimentos importados do mês (<span id="n-movs">0</span>)</summary>
+      <div class="list orc-mov" id="o-movs"></div>
+    </details>
   </section>
 
   <!-- ============ ESPERA 48H ============ -->
@@ -402,7 +427,10 @@ const SEMENTES = [
 const GRUPOS = [["fixas","Casa e contas fixas"],["compromissos","Compromissos"],["dia","Dia a dia"],["viagens","Viagens"]];
 const GRUPO_NOME = Object.fromEntries(GRUPOS);
 
-const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}}});
+/* orcamento.regras: [{re, linha}] in order, first match wins; linha "ignorar" = not an expense.
+   orcamento.movimentos: {"2026-09": [{k, data, desc, valor, linha}]}; valor > 0 is money out. */
+const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}}});
+const completo = d => { const v = vazio(); return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}}; };
 let S = vazio(), editId = null;
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -470,7 +498,7 @@ async function gh(method, body){
   return r.json();
 }
 async function ghLoad(){
-  try { const j = await gh("GET"); return {data: {...vazio(), ...JSON.parse(b64dec(j.content))}, sha: j.sha}; }
+  try { const j = await gh("GET"); return {data: completo(JSON.parse(b64dec(j.content))), sha: j.sha}; }
   catch (e) { if (e.status === 404) return {data: vazio(), sha: null}; throw e; }
 }
 function ghMsg(e){
@@ -663,11 +691,11 @@ function renderOrc(){
     if (!doGrupo.length) return "";
     const teto = doGrupo.reduce((s, l) => s + num(l.teto), 0);
     const rows = doGrupo.map(l => {
-      const v = gastos[l.id], acima = v != null && num(v) > num(l.teto);
+      const v = gastos[l.id], acima = v != null && num(v) > num(l.teto), auto = (gastos._auto || []).includes(l.id);
       return `<div class="row"><div class="grow">
           <span class="title">${esc(l.nome)}</span>
           ${l.nota ? `<span class="muted small">${esc(l.nota)}</span>` : ""}
-          <div class="meta"><span class="chip ${acima ? "late" : ""}">Teto ${esc(euros(l.teto))}</span>${l.ref != null && l.ref !== "" ? `<span class="chip">Antes ${esc(euros(l.ref))}</span>` : ""}${acima ? `<span class="chip late">+${esc(euros(num(v) - num(l.teto)))}</span>` : ""}</div>
+          <div class="meta"><span class="chip ${acima ? "late" : ""}">Teto ${esc(euros(l.teto))}</span>${l.ref != null && l.ref !== "" ? `<span class="chip">Antes ${esc(euros(l.ref))}</span>` : ""}${acima ? `<span class="chip late">+${esc(euros(num(v) - num(l.teto)))}</span>` : ""}${auto ? `<span class="chip">Do banco</span>` : ""}</div>
         </div>
         <input class="gasto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Gasto" aria-label="Gasto em ${esc(l.nome)}" data-gasto="${esc(l.id)}" value="${v ?? ""}">
         <div class="row-actions"><button class="x" data-linha="${esc(l.id)}" title="Editar">Editar</button></div>
@@ -680,6 +708,7 @@ function renderOrc(){
   $("#o-grupos").innerHTML = html || `<div class="list"><div class="empty">Sem categorias.</div></div>`;
   const el = k && $(`[data-${k}="${CSS.escape(a.dataset[k])}"]`);
   if (el){ if (k === "gasto") el.value = texto; el.focus(); }
+  renderMovs();
 }
 
 $("#o-mes").addEventListener("change", e => { mesSel = e.target.value || mesAtual(); renderOrc(); });
@@ -735,6 +764,147 @@ $("#f-imp-orc").addEventListener("change", async e => {
   const linhas = o.linhas.map(l => ({id: String(l.id || uid()), nome: String(l.nome || ""), nota: String(l.nota || ""), grupo: GRUPO_NOME[l.grupo] ? l.grupo : "dia", teto: num(l.teto), ref: l.ref == null ? null : num(l.ref)})).filter(l => l.nome);
   mutate(d => { d.orcamento.linhas = linhas; d.orcamento.rendimento = num(o.rendimento); }, "Importar orçamento")
     .then(() => { showTab("orcamento"); toast(`Orçamento importado: ${linhas.length} categorias.`); }, () => {});
+});
+
+/* ---------- budget: import bank files (Santander netbanco) ---------- */
+const LIBS = {
+  xlsx: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
+  pdf: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+  pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
+};
+const carregados = {};
+const script = src => carregados[src] ||= new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => { delete carregados[src]; ko(new Error("Sem ligação para ler o ficheiro.")); }; document.head.append(s); });
+const valorPt = s => Number(String(s).replace(/\./g, "").replace(",", "."));
+const dataIso = (dd, mm, yyyy) => `${yyyy}-${mm}-${dd}`;
+
+/* Card movements (.xls): header row "Movimento | Data | Descrição | Estado | D/C | Montante". */
+async function lerXls(buf){
+  await script(LIBS.xlsx);
+  const wb = XLSX.read(buf, {type: "array"});
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: ""});
+  const h = rows.findIndex(r => r.some(c => /^data$/i.test(String(c).trim())) && r.some(c => /montante/i.test(c)));
+  if (h < 0) throw new Error("Não reconheço este .xls.");
+  const cab = rows[h].map(c => String(c).trim().toLowerCase());
+  const iData = cab.indexOf("data"), iDesc = cab.findIndex(c => c.startsWith("descri")), iVal = cab.findIndex(c => c.startsWith("montante")), iMov = cab.findIndex(c => c.startsWith("movimento"));
+  const out = [];
+  for (const r of rows.slice(h + 1)){
+    const m = String(r[iData]).match(/^(\d\d)-(\d\d)-(\d{4})$/); if (!m) continue;
+    let v = typeof r[iVal] === "number" ? r[iVal] : valorPt(r[iVal]);
+    const dc = r.find((c, i) => i > iDesc && i < iVal && /^[DC]$/.test(String(c).trim()));
+    if (dc) v = String(dc).trim() === "C" ? -Math.abs(v) : Math.abs(v); else v = -v;
+    const data = dataIso(m[1], m[2], m[3]);
+    out.push({k: `c|${r[iMov]}|${data}|${v}`, data, desc: String(r[iDesc]).trim().replace(/\s+/g, " "), valor: v});
+  }
+  return out;
+}
+
+/* Account statement (.pdf): lines "dd-mm  dd-mm  Descrição  Valor  Saldo"; the year comes from "PERÍODO DE … A yyyy-mm-dd". */
+async function lerPdf(buf){
+  await script(LIBS.pdf);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfWorker;
+  const doc = await pdfjsLib.getDocument({data: buf}).promise;
+  const linhas = [];
+  for (let p = 1; p <= doc.numPages; p++){
+    const items = (await (await doc.getPage(p)).getTextContent()).items.filter(i => i.str.trim());
+    const porY = new Map();
+    for (const i of items){ const y = Math.round(i.transform[5]); (porY.get(y) || porY.set(y, []).get(y)).push(i); }
+    [...porY.keys()].sort((a, b) => b - a).forEach(y => {
+      let txt = "", fim = null;
+      for (const i of porY.get(y).sort((a, b) => a.transform[4] - b.transform[4])){
+        const x = i.transform[4];
+        txt += fim === null ? "" : x - fim > 4 ? "  " : x - fim > 0.5 ? " " : "";
+        txt += i.str; fim = x + i.width;
+      }
+      linhas.push(txt);
+    });
+  }
+  const per = linhas.join("\n").match(/PER[IÍ]ODO DE (\d{4})-(\d\d)-\d\d A (\d{4})-(\d\d)-\d\d/);
+  if (!per) throw new Error("Não reconheço este PDF como extrato.");
+  const anoFim = Number(per[3]), mesFim = Number(per[4]);
+  const out = [], vistos = {};
+  for (const l of linhas){
+    const m = l.trim().match(/^(\d\d)-(\d\d)\s+\d\d-\d\d\s+(.+?)\s{2,}(-?[\d.]+,\d\d)\s+(-?[\d.]+,\d\d)$/);
+    if (!m) continue;
+    const v = -valorPt(m[4]); if (v <= 0) continue; /* money in: salaries, refunds, own transfers */
+    const ano = Number(m[2]) > mesFim ? anoFim - 1 : anoFim, data = dataIso(m[1], m[2], ano), desc = m[3].trim().replace(/\s+/g, " ");
+    const base = `a|${data}|${desc}|${v}`; vistos[base] = (vistos[base] || 0) + 1;
+    out.push({k: `${base}|${vistos[base]}`, data, desc, valor: v});
+  }
+  return out;
+}
+
+function classificar(regras, desc){
+  for (const r of regras){ try { if (new RegExp(r.re, "i").test(desc)) return r.linha; } catch {} }
+  return null;
+}
+/* A rule from a description: the merchant words, without card numbers and references. */
+function chave(desc){
+  const ws = desc.replace(/^COMPRA\s+\S*\*\d{4}\s+/i, "").split(/\s+/).map(w => /^\d{5}-\d+$/.test(w) ? w.slice(0, 5) : w).filter(w => !/\d/.test(w) || /^\d{5}$/.test(w));
+  return ws.slice(0, 3).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*?") || desc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/* Month totals per category from the imported movements; categories filled by hand stay as they are. */
+function recalcular(o, mes){
+  const m = o.meses[mes] ||= {}, tot = {};
+  for (const mv of o.movimentos[mes] || []) if (mv.linha && mv.linha !== "ignorar") tot[mv.linha] = (tot[mv.linha] || 0) + mv.valor;
+  for (const id of m._auto || []) delete m[id];
+  for (const [id, v] of Object.entries(tot)) m[id] = Math.round(v * 100) / 100;
+  m._auto = Object.keys(tot);
+}
+
+$("#btn-imp-mov").addEventListener("click", () => $("#f-imp-mov").click());
+$("#f-imp-mov").addEventListener("change", async e => {
+  const fs = [...e.target.files]; e.target.value = ""; if (!fs.length) return;
+  let movs = [];
+  try {
+    toast("A ler os ficheiros…");
+    for (const f of fs){ const buf = await f.arrayBuffer(); movs = movs.concat(/\.pdf$/i.test(f.name) ? await lerPdf(buf) : await lerXls(buf)); }
+  } catch (err) { console.error(err); toast(err.message || "Não foi possível ler o ficheiro."); return; }
+  let novos = 0, porClass = 0; const meses = new Set();
+  mutate(d => {
+    const o = d.orcamento; novos = porClass = 0;
+    for (const mv of movs){
+      const mes = mv.data.slice(0, 7), lista = o.movimentos[mes] ||= [];
+      if (lista.some(x => x.k === mv.k)) continue;
+      mv.linha = classificar(o.regras, mv.desc); lista.push(mv); novos++; meses.add(mes);
+      if (!mv.linha) porClass++;
+    }
+    meses.forEach(m => recalcular(o, m));
+  }, `Orçamento: importar ${movs.length} movimentos`).then(() => {
+    const ult = [...meses].sort().at(-1); if (ult){ mesSel = ult; $("#o-mes").value = ult; renderOrc(); }
+    toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}.` : "Nada de novo: estes movimentos já estavam importados.");
+  }, () => {});
+});
+
+const opcoesLinhas = sel => `<option value="">Escolher categoria…</option>` +
+  GRUPOS.map(([g, n]) => { const doGrupo = S.orcamento.linhas.filter(l => (l.grupo || "dia") === g); return doGrupo.length ? `<optgroup label="${esc(n)}">${doGrupo.map(l => `<option value="${esc(l.id)}" ${l.id === sel ? "selected" : ""}>${esc(l.nome)}</option>`).join("")}</optgroup>` : ""; }).join("") +
+  `<option value="ignorar" ${sel === "ignorar" ? "selected" : ""}>Não é gasto</option>`;
+const linhaMov = mv => `<div class="row"><div class="grow"><span class="title">${esc(mv.desc)}</span><div class="meta"><span class="chip">${esc(fmt(mv.data))}</span><span class="chip">${esc(euros(mv.valor))}</span></div></div>
+  <select data-mov="${esc(mv.k)}" aria-label="Categoria de ${esc(mv.desc)}">${opcoesLinhas(mv.linha)}</select></div>`;
+function renderMovs(){
+  const movs = [...(S.orcamento.movimentos[mesSel] || [])].sort((a, b) => b.data.localeCompare(a.data));
+  const sem = movs.filter(m => !m.linha);
+  $("#o-classificar-wrap").hidden = !sem.length;
+  $("#n-classificar").textContent = sem.length;
+  if (document.activeElement?.dataset?.mov == null){
+    $("#o-classificar").innerHTML = sem.map(linhaMov).join("");
+    lista($("#o-movs"), movs.map(linhaMov), "Nenhum movimento importado neste mês.");
+  }
+  $("#n-movs").textContent = movs.length;
+}
+document.addEventListener("change", e => {
+  const k = e.target.dataset?.mov; if (k == null) return;
+  const linha = e.target.value || null, mes = mesSel;
+  e.target.blur();
+  mutate(d => {
+    const o = d.orcamento, mv = (o.movimentos[mes] || []).find(x => x.k === k); if (!mv) return;
+    mv.linha = linha; const tocados = new Set([mes]);
+    if (linha){
+      const re = chave(mv.desc);
+      o.regras = [{re, linha}, ...o.regras.filter(r => r.re !== re)];
+      for (const [m, lista] of Object.entries(o.movimentos)) for (const x of lista) if (!x.linha && classificar([{re, linha}], x.desc)){ x.linha = linha; tocados.add(m); }
+    }
+    tocados.forEach(m => recalcular(o, m));
+  }, `Orçamento: classificar ${S.orcamento.movimentos[mes]?.find(x => x.k === k)?.desc || ""}`).catch(() => {});
 });
 
 /* ---------- reminders ---------- */
@@ -799,7 +969,7 @@ $("#btn-desligar").addEventListener("click", () => {
 
 /* ---------- start ---------- */
 $("#today").textContent = new Date().toLocaleDateString("pt-PT", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
-S = {...vazio(), ...(ls.get("descomplica-cache") || {})};
+S = completo(ls.get("descomplica-cache") || {});
 if (!online() && !ls.get("descomplica-cache")){ S.tarefas = SEMENTES.map(deSemente); ls.set("descomplica-cache", S); }
 showTab(ls.get("descomplica-tab") || "agenda");
 renderCfg(); renderNotif(); renderAll();

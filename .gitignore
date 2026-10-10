@@ -1,0 +1,12 @@
+edp/
+goldenergy/
+*.pdf
+*.PDF
+digi/
+fatura_*.pdf
+detalhe_fatura_*.pdf
+gastos/
+*.csv
+*.xlsx
+*.xls
+dados-app/

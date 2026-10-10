@@ -252,8 +252,12 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <div class="block">
       <div class="block-head">
         <h2>Contas, investimentos e dívidas</h2>
-        <button class="btn primary" id="btn-conta">+ Nova</button>
+        <div class="actions">
+          <button class="btn" id="btn-imp-saldos">Importar saldos</button>
+          <button class="btn primary" id="btn-conta">+ Nova</button>
+        </div>
       </div>
+      <p class="muted small">"Importar saldos" aceita o extrato do Santander (.pdf) e a Posição Integrada do Banco Invest (.xlsx): atualiza as contas com nome no extrato.</p>
       <p class="muted small" id="p-aviso"></p>
       <div id="p-grupos" class="block"></div>
     </div>
@@ -423,7 +427,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <label class="fl">Valor hoje (€)<input id="c-valor" type="number" step="0.01" inputmode="decimal" placeholder="Por atualizar"></label>
       <label class="fl">Entra por mês (€)<input id="c-mensal" type="number" min="0" step="1" inputmode="decimal"></label>
     </div>
-    <label class="fl">Nome no extrato do Santander (opcional)<input id="c-extrato" placeholder="Ex.: DEPÓSITOS À ORDEM"></label>
+    <label class="fl">Nome no extrato (opcional)<input id="c-extrato" placeholder="Ex.: DEPÓSITOS À ORDEM ou BANCO INVEST Invest AR PPR"></label>
     <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="c-emerg" style="width:auto"> Conta para o fundo de emergência</label>
     <div class="actions">
       <button class="btn primary" type="submit" value="ok">Guardar</button>
@@ -846,8 +850,9 @@ const dataIso = (dd, mm, yyyy) => `${yyyy}-${mm}-${dd}`;
 /* Card movements (.xls): header row "Movimento | Data | Descrição | Estado | D/C | Montante". */
 async function lerXls(buf){
   await script(LIBS.xlsx);
-  const wb = XLSX.read(buf, {type: "array"});
+  const wb = XLSX.read(buf, {type: "array", cellDates: true});
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: ""});
+  if (rows.some(r => /posi[cç][aã]o integrada/i.test(r[0])) && rows.some(r => /bancoinvest/i.test(r[0]))) return lerPosicaoInvest(rows);
   const h = rows.findIndex(r => r.some(c => /^data$/i.test(String(c).trim())) && r.some(c => /montante/i.test(c)));
   if (h < 0) throw new Error("Não reconheço este .xls.");
   const cab = rows[h].map(c => String(c).trim().toLowerCase());
@@ -862,6 +867,16 @@ async function lerXls(buf){
     out.push({k: `c|${r[iMov]}|${data}|${v}`, data, desc: String(r[iDesc]).trim().replace(/\s+/g, " "), valor: v});
   }
   return {movs: out, saldos: []};
+}
+
+/* Banco Invest "Posição Integrada" (.xlsx): a date, then "Product | SALDO EUR | PESO %" rows. Labels become "BANCO INVEST <product>". */
+function lerPosicaoInvest(rows){
+  const d = rows.flat().find(c => c instanceof Date);
+  const data = d ? iso(d) : hoje();
+  const saldos = rows.filter(r => typeof r[1] === "number" && String(r[0]).trim())
+    .map(r => ({rotulo: `BANCO INVEST ${String(r[0]).trim()}`, valor: Math.round(r[1] * 100) / 100, data}));
+  if (!saldos.length) throw new Error("Não encontro saldos nesta posição do Banco Invest.");
+  return {movs: [], saldos};
 }
 
 /* Account statement (.pdf): lines "dd-mm  dd-mm  Descrição  Valor  Saldo"; the year comes from "PERÍODO DE … A yyyy-mm-dd".
@@ -943,10 +958,11 @@ $("#f-imp-mov").addEventListener("change", async e => {
       if (!mv.linha) porClass++;
     }
     meses.forEach(m => recalcular(o, m));
-  }, `Orçamento: importar ${movs.length} movimentos`).then(() => {
+  }, movs.length ? `Orçamento: importar ${movs.length} movimentos` : "Património: importar saldos").then(() => {
     const ult = [...meses].sort().at(-1); if (ult){ mesSel = ult; $("#o-mes").value = ult; renderOrc(); }
-    const sal = saldosNovos ? ` ${saldosNovos} saldos atualizados no Património.` : "";
-    toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}.${sal}` : `Nada de novo: estes movimentos já estavam importados.${sal}`);
+    const sal = saldosNovos ? `${saldosNovos} ${saldosNovos === 1 ? "saldo atualizado" : "saldos atualizados"} no Património.` : "Os saldos já estavam atualizados.";
+    if (!movs.length) return toast(sal);
+    toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}. ${saldosNovos ? sal : ""}` : `Nada de novo: estes movimentos já estavam importados. ${saldosNovos ? sal : ""}`);
   }, () => {});
 });
 
@@ -1001,7 +1017,7 @@ function fotografia(p){
 function aplicarSaldos(p, saldos){
   let n = 0;
   for (const s of saldos){
-    const c = p.contas.find(c => c.extrato && s.rotulo.toUpperCase().includes(c.extrato.toUpperCase()));
+    const c = p.contas.find(c => c.extrato && s.rotulo.toUpperCase().startsWith(c.extrato.toUpperCase()));
     if (!c || (c.data && c.data > s.data)) continue;
     if (c.valor !== s.valor || c.data !== s.data){ c.valor = s.valor; c.data = s.data; n++; }
   }
@@ -1058,6 +1074,7 @@ function abrirConta(id){
 }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-conta]"); if (b) abrirConta(b.dataset.conta); });
 $("#btn-conta").addEventListener("click", () => abrirConta());
+$("#btn-imp-saldos").addEventListener("click", () => $("#f-imp-mov").click());
 $("#c-cancelar").addEventListener("click", () => $("#dlg-conta").close());
 $("#f-conta").addEventListener("submit", () => {
   const raw = $("#c-valor").value.trim();

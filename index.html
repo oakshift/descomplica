@@ -113,9 +113,13 @@ dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--surf
 dialog::backdrop{background:rgb(0 0 0 / .4)}
 
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:.9rem;max-width:calc(100vw - 32px);z-index:20}
+.orc .row{align-items:center}
+.orc .gasto{flex:none;width:6.5rem;text-align:right;font-variant-numeric:tabular-nums}
+.grupo-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.grupo-head span{font-variant-numeric:tabular-nums}
 ol.steps{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
 code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
-@media (max-width:420px){ .stat b{font-size:1.25rem} }
+@media (max-width:420px){ .stat b{font-size:1.25rem} nav.tabs{gap:2px} nav.tabs button{font-size:.78rem;padding:10px 4px} }
 </style>
 </head>
 <body>
@@ -130,6 +134,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
 
   <nav class="tabs" role="tablist">
     <button data-tab="agenda" aria-selected="true">Agenda</button>
+    <button data-tab="orcamento" aria-selected="false">Orçamento</button>
     <button data-tab="espera" aria-selected="false">Espera 48 h</button>
     <button data-tab="dicas" aria-selected="false">Dicas</button>
     <button data-tab="mais" aria-selected="false">Definições</button>
@@ -165,6 +170,32 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <summary>Feito recentemente</summary>
       <div class="list" id="l-feito"></div>
     </details>
+  </section>
+
+  <!-- ============ ORÇAMENTO ============ -->
+  <section class="tab" id="tab-orcamento" hidden>
+    <div class="stats">
+      <div class="stat" id="o-rend"><span class="label">Rendimento</span><b>0 €</b></div>
+      <div class="stat" id="o-gastos"><span class="label">Gastos</span><b>0 €</b></div>
+      <div class="stat good" id="o-poup"><span class="label">Poupança</span><b>0 €</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="fields">
+        <label class="fl">Mês<input id="o-mes" type="month"></label>
+        <label class="fl">Rendimento líquido por mês (€)<input id="o-rendimento" type="number" min="0" step="1" inputmode="decimal" placeholder="0"></label>
+      </div>
+      <p class="muted small" id="o-resumo" style="margin-top:10px"></p>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>Tetos por categoria</h2>
+        <button class="btn primary" id="btn-linha">+ Nova categoria</button>
+      </div>
+      <p class="muted small">Escreva quanto gastou em cada categoria no mês escolhido. Fica a vermelho o que passar do teto.</p>
+      <div id="o-grupos" class="block"></div>
+    </div>
   </section>
 
   <!-- ============ ESPERA 48H ============ -->
@@ -287,8 +318,11 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
         <div class="actions">
           <button class="btn" id="btn-backup">Descarregar cópia (.json)</button>
           <button class="btn" id="btn-sementes">Repor tarefas sugeridas</button>
+          <button class="btn" id="btn-imp-orc">Importar orçamento (.json)</button>
+          <input type="file" id="f-imp-orc" accept="application/json,.json" hidden>
         </div>
         <p class="muted small">"Repor tarefas sugeridas" só volta a juntar as sugestões que tenha apagado; não mexe nas suas.</p>
+        <p class="muted small">"Importar orçamento" substitui as categorias e o rendimento pelos do ficheiro; os gastos já registados mantêm-se.</p>
       </div>
     </div>
   </section>
@@ -309,6 +343,25 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <button class="btn" type="button" id="t-cancelar">Cancelar</button>
       <span style="flex:1"></span>
       <button class="btn danger" type="button" id="t-apagar">Apagar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-linha">
+  <form class="f" id="f-linha" method="dialog" autocomplete="off">
+    <h2 id="l-titulo">Nova categoria</h2>
+    <label class="fl">Categoria<input id="l-nome" required></label>
+    <label class="fl">Nota<textarea id="l-nota"></textarea></label>
+    <div class="fields">
+      <label class="fl">Grupo<select id="l-grupo"></select></label>
+      <label class="fl">Teto por mês (€)<input id="l-teto" type="number" min="0" step="1" inputmode="decimal" required></label>
+      <label class="fl">Média atual (€)<input id="l-ref" type="number" min="0" step="1" inputmode="decimal"></label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" type="submit" value="ok">Guardar</button>
+      <button class="btn" type="button" id="l-cancelar">Cancelar</button>
+      <span style="flex:1"></span>
+      <button class="btn danger" type="button" id="l-apagar">Apagar</button>
     </div>
   </form>
 </dialog>
@@ -346,7 +399,10 @@ const SEMENTES = [
   {id:"s-passe", cat:"transportes", titulo:"Ver se o passe compensa face ao carro", nota:"Some combustível, estacionamento e portagens de um mês e compare.", freq:"year", int:1, month:9, day:1}
 ];
 
-const vazio = () => ({tarefas:[], historico:[], espera:[]});
+const GRUPOS = [["fixas","Casa e contas fixas"],["compromissos","Compromissos"],["dia","Dia a dia"],["viagens","Viagens"]];
+const GRUPO_NOME = Object.fromEntries(GRUPOS);
+
+const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}}});
 let S = vazio(), editId = null;
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -509,6 +565,8 @@ function renderAll(){
   const dec = S.espera.filter(e => e.estado).sort((a, b) => (b.decidido||"").localeCompare(a.decidido||""));
   lista($("#l-decididos"), dec.slice(0, 30).map(e => `<div class="row"><div class="grow"><span>${esc(e.nome)}</span></div><span class="chip ${e.estado === "desisti" ? "" : "today"}">${e.estado === "desisti" ? "Poupou " + esc(euros(e.preco)) : "Comprou"}</span></div>`), "Ainda nada.");
 
+  renderOrc();
+
   document.title = agora.length ? `(${agora.length}) Descomplica` : "Descomplica";
   try { agora.length ? navigator.setAppBadge?.(agora.length) : navigator.clearAppBadge?.(); } catch {}
 }
@@ -577,6 +635,106 @@ $("#f-espera").addEventListener("submit", e => {
   if (!nome) return;
   mutate(d => { d.espera.push({id: uid(), nome, preco, criado: new Date().toISOString(), estado: null}); }, `Em espera: ${nome}`)
     .then(() => { e.target.reset(); toast("Em espera. Volte daqui a 48 horas."); }, () => {});
+});
+
+/* ---------- budget: monthly caps per category, and what was really spent each month ---------- */
+const num = v => Number(String(v ?? "").replace(",", ".")) || 0;
+const mesAtual = () => hoje().slice(0, 7);
+let mesSel = mesAtual(), editLinha = null;
+$("#o-mes").value = mesSel;
+
+function renderOrc(){
+  const o = S.orcamento, gastos = o.meses[mesSel] || {};
+  const planeado = o.linhas.reduce((s, l) => s + num(l.teto), 0);
+  const registado = o.linhas.filter(l => gastos[l.id] != null);
+  const real = registado.reduce((s, l) => s + num(gastos[l.id]), 0);
+  const poup = num(o.rendimento) - planeado;
+  if (document.activeElement !== $("#o-rendimento")) $("#o-rendimento").value = o.rendimento || "";
+  $("#o-rend b").textContent = euros(o.rendimento);
+  $("#o-gastos b").textContent = euros(planeado);
+  $("#o-poup b").textContent = euros(poup);
+  $("#o-poup").classList.toggle("warn", poup < 0);
+  $("#o-resumo").textContent = !o.linhas.length ? "Ainda sem orçamento. Importe-o nas Definições ou junte categorias." :
+    !registado.length ? `Planeado: poupar ${euros(poup)} por mês${o.rendimento ? ` (${Math.round(poup / o.rendimento * 100)}% do rendimento)` : ""}. Ainda não registou gastos deste mês.` :
+    `Registou ${euros(real)} em ${registado.length} de ${o.linhas.length} categorias. Dessas, o teto era ${euros(registado.reduce((s, l) => s + num(l.teto), 0))}.`;
+
+  const html = GRUPOS.map(([g, nome]) => {
+    const doGrupo = o.linhas.filter(l => (l.grupo || "dia") === g);
+    if (!doGrupo.length) return "";
+    const teto = doGrupo.reduce((s, l) => s + num(l.teto), 0);
+    const rows = doGrupo.map(l => {
+      const v = gastos[l.id], acima = v != null && num(v) > num(l.teto);
+      return `<div class="row"><div class="grow">
+          <span class="title">${esc(l.nome)}</span>
+          ${l.nota ? `<span class="muted small">${esc(l.nota)}</span>` : ""}
+          <div class="meta"><span class="chip ${acima ? "late" : ""}">Teto ${esc(euros(l.teto))}</span>${l.ref != null && l.ref !== "" ? `<span class="chip">Antes ${esc(euros(l.ref))}</span>` : ""}${acima ? `<span class="chip late">+${esc(euros(num(v) - num(l.teto)))}</span>` : ""}</div>
+        </div>
+        <input class="gasto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Gasto" aria-label="Gasto em ${esc(l.nome)}" data-gasto="${esc(l.id)}" value="${v ?? ""}">
+        <div class="row-actions"><button class="x" data-linha="${esc(l.id)}" title="Editar">Editar</button></div>
+      </div>`;
+    }).join("");
+    return `<div class="block orc"><div class="grupo-head"><h3>${esc(nome)}</h3><span class="muted small">${esc(euros(teto))}</span></div><div class="list">${rows}</div></div>`;
+  }).join("");
+  /* Keep the field being typed in: saving one value redraws the list while the next one has focus. */
+  const a = document.activeElement, k = a?.dataset?.gasto ? "gasto" : a?.dataset?.linha ? "linha" : null, texto = a?.value;
+  $("#o-grupos").innerHTML = html || `<div class="list"><div class="empty">Sem categorias.</div></div>`;
+  const el = k && $(`[data-${k}="${CSS.escape(a.dataset[k])}"]`);
+  if (el){ if (k === "gasto") el.value = texto; el.focus(); }
+}
+
+$("#o-mes").addEventListener("change", e => { mesSel = e.target.value || mesAtual(); renderOrc(); });
+$("#o-rendimento").addEventListener("change", e => {
+  const v = num(e.target.value);
+  mutate(d => { d.orcamento.rendimento = v; }, "Orçamento: rendimento").catch(() => {});
+});
+document.addEventListener("change", e => {
+  const id = e.target.dataset?.gasto; if (!id) return;
+  const raw = e.target.value.trim(), mes = mesSel, nome = S.orcamento.linhas.find(l => l.id === id)?.nome || "";
+  /* Save after the focus has moved on, so the redraw keeps it on the next field. */
+  setTimeout(() => mutate(d => {
+    const m = d.orcamento.meses[mes] ||= {};
+    if (raw === "") delete m[id]; else m[id] = num(raw);
+  }, `Orçamento ${mes}: ${nome}`).catch(() => {}));
+});
+
+$("#l-grupo").innerHTML = GRUPOS.map(([v, n]) => `<option value="${v}">${n}</option>`).join("");
+function abrirLinha(id){
+  editLinha = id || null;
+  const l = id ? S.orcamento.linhas.find(x => x.id === id) : null;
+  $("#l-titulo").textContent = l ? "Editar categoria" : "Nova categoria";
+  $("#l-nome").value = l?.nome || ""; $("#l-nota").value = l?.nota || "";
+  $("#l-grupo").value = l?.grupo || "dia"; $("#l-teto").value = l?.teto ?? ""; $("#l-ref").value = l?.ref ?? "";
+  $("#l-apagar").hidden = !l; delete $("#l-apagar").dataset.armed; $("#l-apagar").textContent = "Apagar";
+  $("#dlg-linha").showModal(); if (!l) $("#l-nome").focus();
+}
+document.addEventListener("click", e => { const b = e.target.closest("button[data-linha]"); if (b) abrirLinha(b.dataset.linha); });
+$("#btn-linha").addEventListener("click", () => abrirLinha());
+$("#l-cancelar").addEventListener("click", () => $("#dlg-linha").close());
+$("#f-linha").addEventListener("submit", () => {
+  const v = {nome: $("#l-nome").value.trim(), nota: $("#l-nota").value.trim(), grupo: $("#l-grupo").value, teto: num($("#l-teto").value), ref: $("#l-ref").value === "" ? null : num($("#l-ref").value)};
+  if (!v.nome) return;
+  const id = editLinha;
+  mutate(d => {
+    const x = id && d.orcamento.linhas.find(y => y.id === id);
+    if (x) Object.assign(x, v); else d.orcamento.linhas.push({id: uid(), ...v});
+  }, `Orçamento: ${v.nome}`).catch(() => {});
+});
+$("#l-apagar").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
+  const id = editLinha; $("#dlg-linha").close();
+  mutate(d => { d.orcamento.linhas = d.orcamento.linhas.filter(y => y.id !== id); }, "Orçamento: apagar categoria").then(() => toast("Categoria apagada."), () => {});
+});
+
+$("#btn-imp-orc").addEventListener("click", () => $("#f-imp-orc").click());
+$("#f-imp-orc").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  let o;
+  try { const j = JSON.parse(await f.text()); o = j.orcamento || j; if (!Array.isArray(o.linhas)) throw 0; }
+  catch { toast("Este ficheiro não tem um orçamento válido."); return; }
+  const linhas = o.linhas.map(l => ({id: String(l.id || uid()), nome: String(l.nome || ""), nota: String(l.nota || ""), grupo: GRUPO_NOME[l.grupo] ? l.grupo : "dia", teto: num(l.teto), ref: l.ref == null ? null : num(l.ref)})).filter(l => l.nome);
+  mutate(d => { d.orcamento.linhas = linhas; d.orcamento.rendimento = num(o.rendimento); }, "Importar orçamento")
+    .then(() => { showTab("orcamento"); toast(`Orçamento importado: ${linhas.length} categorias.`); }, () => {});
 });
 
 /* ---------- reminders ---------- */

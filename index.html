@@ -7,6 +7,8 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- Only GitHub (data) and cdnjs (pinned file readers) can be reached; fonts from Google. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src 'self' blob:; connect-src https://api.github.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Descomplica</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -931,13 +933,24 @@ $("#f-imp-orc").addEventListener("change", async e => {
 });
 
 /* ---------- budget: import bank files (Santander netbanco) ---------- */
+/* Pinned with Subresource Integrity (the hashes cdnjs publishes for these versions): the GitHub tokens live in this
+   page's storage, so a changed file on the CDN must not run. The pdf.js worker is fetched with the same check and
+   started from a blob, since a Worker cannot carry an integrity attribute. */
 const LIBS = {
-  xlsx: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
-  pdf: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-  pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
+  xlsx: {src: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", sri: "sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA=="},
+  pdf: {src: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js", sri: "sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ=="},
+  pdfWorker: {src: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js", sri: "sha512-BbrZ76UNZq5BhH7LL7pn9A4TKQpQeNCHOo65/akfelcIBbcVvYWOFQKPXIrykE3qZxYjmDX573oa4Ywsc7rpTw=="}
 };
 const carregados = {};
-const script = src => carregados[src] ||= new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => { delete carregados[src]; ko(new Error("Sem ligação para ler o ficheiro.")); }; document.head.append(s); });
+const ERRO_LIB = "Não foi possível carregar o leitor de ficheiros (sem ligação ou ficheiro alterado). Tente outra vez.";
+const script = lib => carregados[lib.src] ||= new Promise((ok, ko) => {
+  const s = document.createElement("script"); s.src = lib.src; s.integrity = lib.sri; s.crossOrigin = "anonymous";
+  s.onload = ok; s.onerror = () => { delete carregados[lib.src]; s.remove(); ko(new Error(ERRO_LIB)); }; document.head.append(s);
+});
+const workerPdf = () => carregados[LIBS.pdfWorker.src] ||= fetch(LIBS.pdfWorker.src, {integrity: LIBS.pdfWorker.sri, mode: "cors", credentials: "omit"})
+  .then(r => { if (!r.ok) throw new Error(ERRO_LIB); return r.blob(); })
+  .then(b => URL.createObjectURL(new Blob([b], {type: "text/javascript"})))
+  .catch(() => { delete carregados[LIBS.pdfWorker.src]; throw new Error(ERRO_LIB); });
 const valorPt = s => Number(String(s).replace(/\./g, "").replace(",", "."));
 const dataIso = (dd, mm, yyyy) => `${yyyy}-${mm}-${dd}`;
 
@@ -977,8 +990,8 @@ function lerPosicaoInvest(rows){
    The "Resumo das Contas" lines ("Descrição  EUR  Valor  dd-mm") give the balances used in Património. */
 async function lerPdf(buf){
   await script(LIBS.pdf);
-  pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdfWorker;
-  const doc = await pdfjsLib.getDocument({data: buf}).promise;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = await workerPdf();
+  const doc = await pdfjsLib.getDocument({data: buf, isEvalSupported: false}).promise;
   const linhas = [];
   for (let p = 1; p <= doc.numPages; p++){
     const items = (await (await doc.getPage(p)).getTextContent()).items.filter(i => i.str.trim());

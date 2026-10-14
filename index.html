@@ -101,6 +101,7 @@ button.btn{font:700 .9rem var(--body);padding:9px 14px;border-radius:8px;border:
 button.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 button.btn.danger{color:var(--danger)}
 button.btn[data-armed]{background:var(--danger);color:#fff;border-color:var(--danger)}
+button.btn.grande{padding:14px 20px;font-size:1rem}
 button.btn:disabled{opacity:.55;cursor:default}
 button.x{border:0;background:none;color:var(--muted);cursor:pointer;font:700 .8rem var(--body);padding:6px 8px;border-radius:6px}
 button.x:hover{background:var(--surface-2);color:var(--ink)}
@@ -277,6 +278,29 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <div class="stat good" id="b-agua"><span class="label">Água poupada</span><b>0 L</b></div>
     </div>
 
+    <div class="panel">
+      <div class="block">
+        <h2>Sanita seca</h2>
+        <div class="actions">
+          <button class="btn primary grande" id="s-usei">Usei a sanita seca</button>
+          <span class="small" id="s-hoje"></span>
+          <button class="x" id="s-desfazer" hidden>Desfazer</button>
+        </div>
+        <p class="small" id="s-resumo"></p>
+        <details>
+          <summary class="small" style="cursor:pointer;font-weight:700">Valores</summary>
+          <form class="f" id="f-sanita" autocomplete="off" style="margin-top:10px">
+            <div class="fields">
+              <label class="fl">Litros por descarga do autoclismo<input id="s-litros" type="number" min="0" step="0.5" inputmode="decimal"></label>
+              <label class="fl">Preço da água (€/m³)<input id="s-preco" type="number" min="0" step="0.01" inputmode="decimal"></label>
+            </div>
+            <p class="muted small">Cada utilização conta uma descarga que não aconteceu. No preço, junte água, saneamento e resíduos por m³ (está na fatura da Águas de Gaia).</p>
+            <div class="actions"><button class="btn primary" type="submit">Guardar</button></div>
+          </form>
+        </details>
+      </div>
+    </div>
+
     <h2>Bicicleta</h2>
     <p class="small" id="b-total"></p>
 
@@ -319,22 +343,6 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       </div>
     </details>
 
-    <div class="panel">
-      <form class="f" id="f-sanita" autocomplete="off">
-        <div>
-          <h2>Sanita seca</h2>
-          <p class="small" id="s-resumo" style="margin-top:6px"></p>
-        </div>
-        <div class="fields">
-          <label class="fl">A usar desde<input id="s-inicio" type="date"></label>
-          <label class="fl">Utilizações por dia<input id="s-usos" type="number" min="0" step="0.5" inputmode="decimal"></label>
-          <label class="fl">Litros por descarga do autoclismo<input id="s-litros" type="number" min="0" step="0.5" inputmode="decimal"></label>
-          <label class="fl">Preço da água (€/m³)<input id="s-preco" type="number" min="0" step="0.01" inputmode="decimal"></label>
-        </div>
-        <p class="muted small">Conta todos os dias desde a data de início. No preço, junte água, saneamento e resíduos por m³ (está na fatura da Águas de Gaia). Deixe a data vazia se deixar de a usar.</p>
-        <div class="actions"><button class="btn primary" type="submit">Guardar</button></div>
-      </form>
-    </div>
   </section>
 
   <!-- ============ ESPERA 48H ============ -->
@@ -570,10 +578,10 @@ const GRUPO_NOME = Object.fromEntries(GRUPOS);
 const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}},
   patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0},
   bicicleta:{carro:{nome:"", combustivel:"gasoleo", consumo:6.5, preco:1.65, extraKm:0.08, estacionamento:0}, trajetos:[], viagens:[]},
-  sanita:{inicio:"", usosDia:5, litros:6, precoM3:2.5}});
+  sanita:{litros:6, precoM3:2.5, dias:{}}});
 const completo = d => { const v = vazio(), b = d.bicicleta || {};
   return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}, patrimonio: {...v.patrimonio, ...(d.patrimonio || {})},
-    bicicleta: {...v.bicicleta, ...b, carro: {...v.bicicleta.carro, ...(b.carro || {})}}, sanita: {...v.sanita, ...(d.sanita || {})}}; };
+    bicicleta: {...v.bicicleta, ...b, carro: {...v.bicicleta.carro, ...(b.carro || {})}}, sanita: {...v.sanita, ...(d.sanita || {}), dias: {...(d.sanita?.dias || {})}}}; };
 let S = vazio(), editId = null;
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -1181,30 +1189,37 @@ function somaViagens(c, vs){
 }
 $("#b-data").value = hoje();
 
-/* Dry toilet: every day from the start date counts the flushes that did not happen. */
+/* Dry toilet: one tap per use; sanita.dias = {"2026-10-14": 3}. Each use is a flush that did not happen. */
 const litros = n => n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("pt-PT")} m³` : `${Math.round(n).toLocaleString("pt-PT")} L`;
-function sanitaPoupou(sa, desde){
-  if (!sa.inicio || sa.inicio > hoje()) return {litros: 0, euros: 0};
-  const de = desde && desde > sa.inicio ? desde : sa.inicio;
-  const l = (dias(de, hoje()) + 1) * num(sa.usosDia) * num(sa.litros);
-  return {litros: l, euros: l / 1000 * num(sa.precoM3)};
+function sanitaPoupou(sa, prefixo = ""){
+  const usos = Object.entries(sa.dias).filter(([d]) => d.startsWith(prefixo)).reduce((t, [, n]) => t + num(n), 0), l = usos * num(sa.litros);
+  return {usos, litros: l, euros: l / 1000 * num(sa.precoM3)};
 }
+function usarSanita(delta){
+  const dia = hoje();
+  return mutate(d => { const ds = d.sanita.dias, n = Math.max(0, num(ds[dia]) + delta); if (n) ds[dia] = n; else delete ds[dia]; }, delta > 0 ? "Sanita seca: +1" : "Sanita seca: desfazer");
+}
+$("#s-usei").addEventListener("click", () => usarSanita(1).then(() => { const sa = S.sanita; toast(`Registado: ${num(sa.litros)} L de água poupados.`); }, () => {}));
+$("#s-desfazer").addEventListener("click", () => usarSanita(-1).catch(() => {}));
 $("#f-sanita").addEventListener("submit", e => {
   e.preventDefault();
-  const v = {inicio: $("#s-inicio").value, usosDia: num($("#s-usos").value), litros: num($("#s-litros").value), precoM3: num($("#s-preco").value)};
-  mutate(d => { d.sanita = v; }, "Sanita seca: valores").then(() => { document.activeElement?.blur(); toast("Guardado."); }, () => {});
+  const l = num($("#s-litros").value), pr = num($("#s-preco").value);
+  mutate(d => { d.sanita.litros = l; d.sanita.precoM3 = pr; }, "Sanita seca: valores").then(() => { document.activeElement?.blur(); toast("Guardado."); }, () => {});
 });
 
 function renderBici(){
   const b = S.bicicleta, c = b.carro, mes = somaViagens(c, b.viagens.filter(v => v.data.startsWith(mesAtual()))), tot = somaViagens(c, b.viagens);
-  const sMes = sanitaPoupou(S.sanita, `${mesAtual()}-01`), sTot = sanitaPoupou(S.sanita);
+  const sMes = sanitaPoupou(S.sanita, mesAtual()), sTot = sanitaPoupou(S.sanita), nHoje = num(S.sanita.dias[hoje()]);
   $("#b-euros b").textContent = euros(Math.round((mes.euros + sMes.euros) * 100) / 100);
   $("#b-co2 b").textContent = kg(mes.co2);
   $("#b-agua b").textContent = litros(sMes.litros);
   const sa = S.sanita;
-  $("#s-resumo").innerHTML = !sa.inicio ? "Indique desde quando usa a sanita seca para começar a contar." :
-    `Este mês: <strong>${esc(litros(sMes.litros))}</strong> e ${esc(euros(Math.round(sMes.euros * 100) / 100))}. Desde ${esc(fmt(sa.inicio, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${esc(litros(sTot.litros))}</strong> de água e <strong>${esc(euros(Math.round(sTot.euros * 100) / 100))}</strong>.`;
-  if (!$("#f-sanita").contains(document.activeElement)){ $("#s-inicio").value = sa.inicio || ""; $("#s-usos").value = sa.usosDia; $("#s-litros").value = sa.litros; $("#s-preco").value = sa.precoM3; }
+  $("#s-hoje").textContent = `Hoje: ${nHoje}`;
+  $("#s-desfazer").hidden = !nHoje;
+  const desde = Object.keys(sa.dias).sort()[0];
+  $("#s-resumo").innerHTML = !sTot.usos ? "Carregue no botão sempre que usar a sanita seca." :
+    `Este mês: ${sMes.usos} ${sMes.usos === 1 ? "vez" : "vezes"}, <strong>${esc(litros(sMes.litros))}</strong> e ${esc(euros(Math.round(sMes.euros * 100) / 100))}. Desde ${esc(fmt(desde, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${esc(litros(sTot.litros))}</strong> de água e <strong>${esc(euros(Math.round(sTot.euros * 100) / 100))}</strong>.`;
+  if (!$("#f-sanita").contains(document.activeElement)){ $("#s-litros").value = sa.litros; $("#s-preco").value = sa.precoM3; }
   const inicio = b.viagens.length ? b.viagens.reduce((m, v) => v.data < m ? v.data : m, b.viagens[0].data) : null;
   $("#b-total").innerHTML = tot.n ? `Desde ${esc(fmt(inicio, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${tot.n} ${tot.n === 1 ? "viagem" : "viagens"}</strong>, ${esc((Math.round(tot.km * 10) / 10).toLocaleString("pt-PT"))} km, <strong>${esc(euros(Math.round(tot.euros * 100) / 100))}</strong> poupados, ${esc(kg(tot.co2))} de CO₂ e ${esc((Math.round(tot.litros * 10) / 10).toLocaleString("pt-PT"))} L de combustível que não foram gastos.` : "Registe a primeira viagem de bicicleta para começar a contar.";
   const p1 = poupanca(c, 1);
@@ -1318,7 +1333,11 @@ S = completo(ls.get("descomplica-cache") || {});
 if (!online() && !ls.get("descomplica-cache")){ S.tarefas = SEMENTES.map(deSemente); ls.set("descomplica-cache", S); }
 showTab(ls.get("descomplica-tab") || "agenda");
 renderCfg(); renderNotif(); renderAll();
-if (online()) reload().then(avisar); else avisar();
+/* App icon shortcut (manifest): ?acao=sanita registers one use, then the address is cleaned so a reload does not count it again. */
+const acao = new URLSearchParams(location.search).get("acao");
+if (acao) history.replaceState(null, "", location.pathname);
+const depois = () => { if (acao === "sanita"){ showTab("bicicleta"); $("#s-usei").click(); } };
+if (online()) reload().then(avisar).then(depois); else { avisar(); depois(); }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 setInterval(renderAll, 10 * 60e3);
 </script>

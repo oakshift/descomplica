@@ -118,6 +118,7 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:.9rem;max-width:calc(100vw - 32px);z-index:20}
 .orc .row{align-items:center}
 .orc .gasto{flex:none;width:6.5rem;text-align:right;font-variant-numeric:tabular-nums}
+.grafico{display:block;width:100%;height:auto;margin-top:6px;font-family:var(--body)}
 .barra{height:12px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
 .barra span{display:block;height:100%;width:0;background:var(--accent);border-radius:99px}
 .valor{flex:none;font-variant-numeric:tabular-nums;font-weight:700;text-align:right}
@@ -217,6 +218,15 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <div class="list orc-mov" id="o-classificar"></div>
     </div>
 
+    <div class="panel">
+      <div class="block">
+        <h2 id="f-titulo">Fecho do mês</h2>
+        <p class="small" id="f-resumo"></p>
+        <div class="meta" id="f-acima"></div>
+        <div id="f-grafico"></div>
+      </div>
+    </div>
+
     <div class="block">
       <div class="block-head">
         <h2>Tetos por categoria</h2>
@@ -268,6 +278,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
 
     <details class="more block">
       <summary>Evolução por mês</summary>
+      <div id="p-grafico"></div>
       <div class="list" id="p-hist"></div>
     </details>
   </section>
@@ -886,6 +897,58 @@ const mesAtual = () => hoje().slice(0, 7);
 let mesSel = mesAtual(), editLinha = null;
 $("#o-mes").value = mesSel;
 
+/* ---------- charts (inline SVG, theme colours) ---------- */
+const mesCurto = m => parse(m + "-01").toLocaleDateString("pt-PT", {month: "short"}).replace(".", "");
+const eurCurto = n => `${Math.round(n).toLocaleString("pt-PT")} €`;
+/* Bars from zero; a dashed reference line (the plan); bars above it in red. */
+function grafBarras(itens, ref, refRotulo, titulo){
+  const W = 340, H = 170, x0 = 8, y0 = 26, base = H - 22, alto = base - y0;
+  const max = Math.max(ref || 0, ...itens.map(i => i.valor), 1), bw = (W - x0 * 2) / itens.length, y = v => base - v / max * alto;
+  const barras = itens.map((i, k) => {
+    const x = x0 + k * bw + bw * 0.18, w = bw * 0.64, acima = ref && i.valor > ref;
+    return `<g><title>${esc(`${i.rotulo}: ${i.valor ? eurCurto(i.valor) : "sem dados"}`)}</title>
+      ${i.valor ? `<rect x="${x}" y="${y(i.valor)}" width="${w}" height="${base - y(i.valor)}" rx="3" fill="${acima ? "var(--danger)" : "var(--accent)"}" opacity="${i.atual ? 1 : 0.55}"/>
+      <text x="${x + w / 2}" y="${y(i.valor) - 5}" text-anchor="middle" font-size="10" fill="var(--ink)">${esc(eurCurto(i.valor))}</text>` :
+      `<text x="${x + w / 2}" y="${base - 6}" text-anchor="middle" font-size="9" fill="var(--muted)">—</text>`}
+      <text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${i.atual ? "var(--ink)" : "var(--muted)"}" font-weight="${i.atual ? 700 : 400}">${esc(i.rotulo)}</text></g>`;
+  }).join("");
+  const r = ref ? `<line x1="${x0}" x2="${W - x0}" y1="${y(ref)}" y2="${y(ref)}" stroke="var(--muted)" stroke-dasharray="4 3"/>
+    <text x="${x0}" y="${y(ref) - 5}" font-size="10" fill="var(--muted)">${esc(refRotulo)}</text>` : "";
+  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(titulo)}"><line x1="${x0}" x2="${W - x0}" y1="${base}" y2="${base}" stroke="var(--line)"/>${barras}${r}</svg>`;
+}
+/* A line through monthly values; first and last values labelled. */
+function grafLinha(pontos, titulo){
+  const W = 340, H = 150, x0 = 30, x1 = W - 30, y0 = 24, base = H - 22;
+  const vs = pontos.map(p => p.valor), min = Math.min(...vs), max = Math.max(...vs), amp = max - min || Math.abs(max) || 1;
+  const x = k => pontos.length === 1 ? (x0 + x1) / 2 : x0 + k * (x1 - x0) / (pontos.length - 1), y = v => base - 16 - (v - min) / amp * (base - 16 - y0);
+  const d = pontos.map((p, k) => `${k ? "L" : "M"}${x(k)},${y(p.valor)}`).join(" ");
+  const marcas = pontos.map((p, k) => `<circle cx="${x(k)}" cy="${y(p.valor)}" r="3.5" fill="var(--accent)"><title>${esc(`${p.rotulo}: ${eurCurto(p.valor)}`)}</title></circle>
+    <text x="${x(k)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(p.rotulo)}</text>`).join("");
+  const ult = pontos.length - 1;
+  const rot = [0, ult].filter((k, i, a) => a.indexOf(k) === i).map(k => `<text x="${k === ult && ult ? x(k) + 4 : x(k) - 4}" y="${y(pontos[k].valor) - 10}" text-anchor="${k === ult && ult ? "end" : "start"}" font-size="10" font-weight="700" fill="var(--ink)">${esc(eurCurto(pontos[k].valor))}</text>`).join("");
+  return `<svg class="grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(titulo)}"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2"/>${marcas}${rot}</svg>`;
+}
+
+/* ---------- month close: registered spending against the plan ---------- */
+const gastoMes = (o, m) => o.linhas.reduce((t, l) => { const v = o.meses[m]?.[l.id]; return v == null ? t : {total: t.total + num(v), n: t.n + 1}; }, {total: 0, n: 0});
+function renderFecho(){
+  const o = S.orcamento, planeado = o.linhas.reduce((t, l) => t + num(l.teto), 0), g = gastoMes(o, mesSel), rend = num(o.rendimento);
+  const nomeMes = fmt(mesSel + "-01", {month: "long", year: "numeric"});
+  $("#f-titulo").textContent = `Fecho de ${nomeMes}`;
+  if (!g.n){ $("#f-resumo").textContent = "Ainda sem gastos registados neste mês. Importe os extratos ou escreva os gastos nas categorias."; }
+  else {
+    const poup = rend - g.total, falta = o.linhas.length - g.n;
+    $("#f-resumo").innerHTML = `Gasto registado: <strong>${esc(eurCurto(g.total))}</strong> de ${esc(eurCurto(planeado))} planeados. ` +
+      `Poupança: <strong>${esc(eurCurto(poup))}</strong>${rend ? ` (${Math.round(poup / rend * 100)}% do rendimento)` : ""}.` +
+      (falta ? ` Faltam gastos em ${falta} de ${o.linhas.length} categorias, por isso a poupança real deve ser menor.` : "");
+  }
+  const acima = o.linhas.map(l => ({l, v: o.meses[mesSel]?.[l.id]})).filter(x => x.v != null && num(x.v) - num(x.l.teto) >= 1).sort((a, b) => (num(b.v) - num(b.l.teto)) - (num(a.v) - num(a.l.teto)));
+  $("#f-acima").innerHTML = acima.length ? `<span class="small">Acima do teto:</span>` + acima.map(x => `<span class="chip late">${esc(x.l.nome)} +${esc(eurCurto(num(x.v) - num(x.l.teto)))}</span>`).join("") : "";
+  const meses = Array.from({length: 6}, (_, k) => { const d = parse(mesSel + "-01"); d.setMonth(d.getMonth() - 5 + k); return iso(d).slice(0, 7); });
+  const itens = meses.map(m => ({rotulo: mesCurto(m), valor: gastoMes(o, m).total, atual: m === mesSel}));
+  $("#f-grafico").innerHTML = itens.some(i => i.valor) ? grafBarras(itens, planeado, `Planeado ${eurCurto(planeado)}`, `Gasto registado nos últimos 6 meses, até ${nomeMes}`) : "";
+}
+
 function renderOrc(){
   const o = S.orcamento, gastos = o.meses[mesSel] || {};
   const planeado = o.linhas.reduce((s, l) => s + num(l.teto), 0);
@@ -923,7 +986,7 @@ function renderOrc(){
   $("#o-grupos").innerHTML = html || `<div class="list"><div class="empty">Sem categorias.</div></div>`;
   const el = k && $(`[data-${k}="${CSS.escape(a.dataset[k])}"]`);
   if (el){ if (k === "gasto") el.value = texto; el.focus(); }
-  renderMovs();
+  renderMovs(); renderFecho();
 }
 
 $("#o-mes").addEventListener("change", e => { mesSel = e.target.value || mesAtual(); renderOrc(); });
@@ -1211,6 +1274,8 @@ function renderPat(){
       <span class="valor ${div ? "neg" : ""}">${c.valor == null ? `<span class="chip late">Por atualizar</span>` : (div ? "−" : "") + esc(euros(c.valor))}</span>
       <div class="row-actions"><button class="x" data-conta="${esc(c.id)}">Editar</button></div></div>`).join("")}</div></div>`;
   }).join("") || `<div class="list"><div class="empty">Ainda sem contas.</div></div>`;
+  const pts = p.historico.map(h => ({rotulo: mesCurto(h.mes), valor: h.ativos - h.dividas}));
+  $("#p-grafico").innerHTML = pts.length > 1 ? grafLinha(pts, "Património líquido por mês") : `<p class="muted small">O gráfico aparece a partir do segundo mês com registos.</p>`;
   lista($("#p-hist"), [...p.historico].reverse().map(h => `<div class="row"><div class="grow"><span class="title">${esc(fmt(h.mes + "-01", {month:"long", year:"numeric"}))}</span>
     <span class="muted small">Bens ${esc(euros(h.ativos))} · dívidas ${esc(euros(h.dividas))} · emergência ${esc(euros(h.emergencia))}</span></div><span class="valor">${esc(euros(h.ativos - h.dividas))}</span></div>`), "Ainda sem registos.");
 }

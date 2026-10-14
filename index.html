@@ -204,10 +204,10 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <div class="panel">
       <div class="block">
         <h2>Importar do banco</h2>
-        <p class="muted small">Escolha os ficheiros descarregados do netbanco: movimentos do cartão (.xls) e extrato da conta (.pdf). São lidos só neste aparelho e os gastos de cada mês ficam preenchidos. Importar o mesmo ficheiro duas vezes não duplica nada.</p>
+        <p class="muted small">Escolha os ficheiros: movimentos do cartão Santander (.xls), extrato da conta (.pdf), extrato da Revolut (.csv) e faturas do e-fatura (.csv, para o IRS). São lidos só neste aparelho e os gastos de cada mês ficam preenchidos. Importar o mesmo ficheiro duas vezes não duplica nada.</p>
         <div class="actions">
           <button class="btn primary" id="btn-imp-mov">Importar ficheiros</button>
-          <input type="file" id="f-imp-mov" multiple accept=".xls,.xlsx,.pdf" hidden>
+          <input type="file" id="f-imp-mov" multiple accept=".xls,.xlsx,.pdf,.csv" hidden>
         </div>
       </div>
     </div>
@@ -240,6 +240,19 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       <summary>Movimentos importados do mês (<span id="n-movs">0</span>)</summary>
       <div class="list orc-mov" id="o-movs"></div>
     </details>
+
+    <div class="panel">
+      <div class="block">
+        <div class="block-head">
+          <h2>IRS: deduções</h2>
+          <label class="fl" style="min-width:7rem">Ano<select id="irs-ano"></select></label>
+        </div>
+        <p class="small" id="irs-resumo"></p>
+        <div class="list" id="irs-lista"></div>
+        <label class="fl" style="max-width:20rem">Pessoas que entregam IRS com estas faturas<input id="irs-sujeitos" type="number" min="1" max="2" step="1" inputmode="numeric"></label>
+        <p class="muted small">Importe o CSV de cada pessoa do agregado em <a href="https://faturas.portaldasfinancas.gov.pt/" target="_blank" rel="noopener">e-fatura</a> → Consultar faturas → Exportar (pode importar de novo para atualizar as pendentes). Estimativa com as regras gerais que conheço (despesas gerais 35% até 250 € por pessoa; saúde 15% até 1 000 €; educação 30% até 800 €; IVA de oficinas, restaurantes e cabeleireiros 15% e dos passes 100%, até 250 €): os limites mudam, confirme no Portal das Finanças.</p>
+      </div>
+    </div>
   </section>
 
   <!-- ============ PATRIMÓNIO ============ -->
@@ -271,7 +284,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
           <button class="btn primary" id="btn-conta">+ Nova</button>
         </div>
       </div>
-      <p class="muted small">"Importar saldos" aceita o extrato do Santander (.pdf) e a Posição Integrada do Banco Invest (.xlsx): atualiza as contas com nome no extrato.</p>
+      <p class="muted small">"Importar saldos" aceita o extrato do Santander (.pdf), a Posição Integrada do Banco Invest (.xlsx) e o extrato da Revolut (.csv): atualiza as contas com nome no extrato.</p>
       <p class="muted small" id="p-aviso"></p>
       <div id="p-grupos" class="block"></div>
     </div>
@@ -986,7 +999,7 @@ function renderOrc(){
   $("#o-grupos").innerHTML = html || `<div class="list"><div class="empty">Sem categorias.</div></div>`;
   const el = k && $(`[data-${k}="${CSS.escape(a.dataset[k])}"]`);
   if (el){ if (k === "gasto") el.value = texto; el.focus(); }
-  renderMovs(); renderFecho();
+  renderMovs(); renderFecho(); renderIrs();
 }
 
 $("#o-mes").addEventListener("change", e => { mesSel = e.target.value || mesAtual(); renderOrc(); });
@@ -1140,6 +1153,93 @@ async function lerPdf(buf){
   return {movs: out, saldos};
 }
 
+/* ---------- CSV files: Revolut statement and e-fatura invoices ---------- */
+function linhasCsv(txt){
+  txt = txt.replace(/^\ufeff/, "");
+  const sep = (txt.split("\n")[0].match(/;/g) || []).length > (txt.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+  const rows = []; let row = [], cel = "", aspas = false;
+  for (let i = 0; i < txt.length; i++){
+    const c = txt[i];
+    if (aspas){ if (c === '"' && txt[i + 1] === '"'){ cel += '"'; i++; } else if (c === '"') aspas = false; else cel += c; }
+    else if (c === '"') aspas = true;
+    else if (c === sep){ row.push(cel); cel = ""; }
+    else if (c === "\n" || c === "\r"){ if (c === "\r" && txt[i + 1] === "\n") i++; row.push(cel); if (row.some(x => x !== "")) rows.push(row); row = []; cel = ""; }
+    else cel += c;
+  }
+  row.push(cel); if (row.some(x => x !== "")) rows.push(row);
+  return rows;
+}
+const valorEur = s => valorPt(String(s).replace(/[€\s\u00a0]/g, ""));
+function lerCsv(buf){
+  const rows = linhasCsv(new TextDecoder("utf-8").decode(buf)), cab = (rows[0] || []).map(c => c.trim().toLowerCase());
+  const col = (...nomes) => cab.findIndex(c => nomes.some(n => c === n || c.startsWith(n)));
+  /* e-fatura: "Setor;Emitente;Nº Fatura / ATCUD;Tipo;Data Emissão;Total;IVA;Base Tributável;Situação;…" */
+  if (col("setor") >= 0 && col("emitente") >= 0){
+    const iS = col("setor"), iE = col("emitente"), iN = col("nº fatura", "n.º fatura"), iD = col("data emiss"), iT = col("total"), iI = col("iva"), iSit = col("situa");
+    const faturas = rows.slice(1).filter(r => /^\d{4}-\d\d-\d\d$/.test(r[iD] || "")).map(r => ({k: `${String(r[iE]).split(" ")[0]}|${r[iN]}`, setor: r[iS] || "", emitente: r[iE], data: r[iD], total: valorEur(r[iT]), iva: valorEur(r[iI]), situacao: r[iSit] || ""}));
+    if (!faturas.length) throw new Error("Este CSV do e-fatura não tem faturas.");
+    return {movs: [], saldos: [], faturas};
+  }
+  /* Revolut: "Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance" (or the Portuguese headings). */
+  const iD = col("started date", "data de início", "data de inicio"), iDesc = col("description", "descrição", "descricao"), iA = col("amount", "montante", "valor");
+  if (iD >= 0 && iDesc >= 0 && iA >= 0){
+    const iF = col("fee", "comissão", "comissao", "taxa"), iSt = col("state", "estado"), iP = col("product", "produto"), iB = col("balance", "saldo"), iT = col("type", "tipo"), vistos = {}, movs = [], ultimo = {};
+    for (const r of rows.slice(1)){
+      const data = String(r[iD]).slice(0, 10); if (!/^\d{4}-\d\d-\d\d$/.test(data)) continue;
+      if (iSt >= 0 && !/complet|conclu/i.test(r[iSt])) continue;
+      const prod = iP >= 0 ? String(r[iP]).trim() : "";
+      if (iB >= 0 && r[iB] !== "") ultimo[prod] = {valor: Math.abs(Number(r[iB])), data};
+      if (iT >= 0 && /exchange|câmbio|cambio/i.test(r[iT])) continue;
+      const a = Number(r[iA]), fee = iF >= 0 ? Number(r[iF]) || 0 : 0; if (!(a < 0)) continue;
+      const v = Math.round((-a + Math.abs(fee)) * 100) / 100, desc = String(r[iDesc]).trim(), base = `r|${r[iD]}|${desc}|${v}`;
+      vistos[base] = (vistos[base] || 0) + 1;
+      movs.push({k: `${base}|${vistos[base]}`, data, desc: `Revolut: ${desc}`, valor: v});
+    }
+    const saldos = Object.entries(ultimo).map(([prod, s]) => ({rotulo: /^(current|atual|corrente|)$/i.test(prod) ? "REVOLUT À ORDEM" : `REVOLUT ${prod.toUpperCase()}`, valor: s.valor, data: s.data}));
+    return {movs, saldos};
+  }
+  throw new Error("Não reconheço este CSV: aceito o extrato da Revolut e as faturas do e-fatura.");
+}
+
+/* ---------- IRS: deductions estimated from e-fatura invoices ---------- */
+let irsAno = String(new Date().getFullYear());
+function juntarFaturas(d, faturas){
+  const irs = d.irs ||= {faturas: [], sujeitos: 1}, por = new Map(irs.faturas.map(f => [f.k, f])); let novas = 0, atualizadas = 0;
+  for (const f of faturas){ const x = por.get(f.k); if (!x){ irs.faturas.push(f); por.set(f.k, f); novas++; } else if (x.situacao !== f.situacao || x.setor !== f.setor){ Object.assign(x, f); atualizadas++; } }
+  return {novas, atualizadas};
+}
+function deducoes(fs, sujeitos){
+  const soma = (f, campo = "total") => fs.filter(f).reduce((t, x) => t + num(x[campo]), 0);
+  const setor = re => x => re.test(x.setor), gerais = soma(setor(/^outros$/i)), saude = soma(setor(/sa[uú]de/i)), educ = soma(setor(/educa/i));
+  const ivaPasses = soma(setor(/passes|transportes p[uú]blicos/i), "iva"), ivaOutros = soma(setor(/repara[cç][aã]o de (ve[ií]culos|motociclos)|alojamento|restaura|cabeleireiro|beleza|veterin|gin[aá]s/i), "iva");
+  return [
+    {nome: "Despesas gerais familiares", despesa: gerais, deducao: Math.min(gerais * 0.35, 250 * sujeitos), limite: 250 * sujeitos},
+    {nome: "Saúde", despesa: saude, deducao: Math.min(saude * 0.15, 1000), limite: 1000},
+    {nome: "Educação", despesa: educ, deducao: Math.min(educ * 0.30, 800), limite: 800},
+    {nome: "IVA (oficinas, restaurantes, cabeleireiros, passes)", despesa: ivaPasses + ivaOutros, deducao: Math.min(ivaPasses + ivaOutros * 0.15, 250), limite: 250, iva: true}
+  ];
+}
+function renderIrs(){
+  const irs = S.irs || {faturas: [], sujeitos: 1}, anos = [...new Set(irs.faturas.map(f => f.data.slice(0, 4)))].sort().reverse();
+  if (!anos.includes(irsAno) && anos.length) irsAno = anos[0];
+  $("#irs-ano").innerHTML = (anos.length ? anos : [irsAno]).map(a => `<option ${a === irsAno ? "selected" : ""}>${a}</option>`).join("");
+  if (document.activeElement !== $("#irs-sujeitos")) $("#irs-sujeitos").value = irs.sujeitos || 1;
+  const fs = irs.faturas.filter(f => f.data.startsWith(irsAno));
+  if (!fs.length){ $("#irs-resumo").textContent = "Importe os CSV do e-fatura para estimar as deduções do ano."; $("#irs-lista").innerHTML = ""; return; }
+  const ds = deducoes(fs, Math.max(1, num(irs.sujeitos) || 1)), total = ds.reduce((t, x) => t + x.deducao, 0);
+  const pend = fs.filter(f => /pendente/i.test(f.situacao)), semSetor = fs.filter(f => !f.setor);
+  $("#irs-resumo").innerHTML = `${fs.length} faturas em ${esc(irsAno)}. Dedução estimada: <strong>${esc(euros(Math.round(total)))}</strong>.` +
+    (pend.length ? ` <span class="chip late">${pend.length} pendentes (${esc(euros(Math.round(pend.reduce((t, f) => t + num(f.total), 0))))})</span> valide-as no e-fatura (até 25 de fevereiro do ano seguinte).` : "") +
+    (semSetor.length ? ` ${semSetor.length} sem setor: escolha o setor no e-fatura para contarem.` : "");
+  $("#irs-lista").innerHTML = ds.map(x => { const pct = x.limite ? Math.min(100, Math.round(x.deducao / x.limite * 100)) : 0; return `<div class="row"><div class="grow">
+      <span class="title">${esc(x.nome)}</span>
+      <div class="barra" role="progressbar" aria-label="${esc(x.nome)}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
+      <span class="muted small">${x.iva ? "IVA" : "Despesas"}: ${esc(euros(Math.round(x.despesa)))} · limite ${esc(euros(x.limite))}${pct >= 100 ? " · atingido" : ""}</span>
+    </div><span class="valor">${esc(euros(Math.round(x.deducao)))}</span></div>`; }).join("");
+}
+$("#irs-ano").addEventListener("change", e => { irsAno = e.target.value; renderIrs(); });
+$("#irs-sujeitos").addEventListener("change", e => { const v = Math.min(2, Math.max(1, Math.round(num(e.target.value)) || 1)); mutate(d => { (d.irs ||= {faturas: [], sujeitos: 1}).sujeitos = v; }, "IRS: pessoas no agregado").catch(() => {}); });
+
 function classificar(regras, desc){
   for (const r of regras){ try { if (new RegExp(r.re, "i").test(desc)) return r.linha; } catch {} }
   return null;
@@ -1161,15 +1261,26 @@ function recalcular(o, mes){
 $("#btn-imp-mov").addEventListener("click", () => $("#f-imp-mov").click());
 $("#f-imp-mov").addEventListener("change", async e => {
   const fs = [...e.target.files]; e.target.value = ""; if (!fs.length) return;
-  let movs = [], saldos = [];
+  let movs = [], saldos = [], faturas = [];
   try {
     toast("A ler os ficheiros…");
-    for (const f of fs){ const buf = await f.arrayBuffer(), r = /\.pdf$/i.test(f.name) ? await lerPdf(buf) : await lerXls(buf); movs = movs.concat(r.movs); saldos = saldos.concat(r.saldos); }
+    for (const f of fs){
+      const buf = await f.arrayBuffer(), r = /\.pdf$/i.test(f.name) ? await lerPdf(buf) : /\.csv$/i.test(f.name) ? lerCsv(buf) : await lerXls(buf);
+      movs = movs.concat(r.movs); saldos = saldos.concat(r.saldos); faturas = faturas.concat(r.faturas || []);
+    }
   } catch (err) { console.error(err); toast(err.message || "Não foi possível ler o ficheiro."); return; }
-  let novos = 0, porClass = 0, saldosNovos = 0; const meses = new Set();
+  let novos = 0, porClass = 0, saldosNovos = 0, fat = {novas: 0, atualizadas: 0}; const meses = new Set();
+  if (!movs.length && !saldos.length && faturas.length){
+    mutate(d => { fat = juntarFaturas(d, faturas); }, `IRS: importar ${faturas.length} faturas`).then(() => {
+      irsAno = faturas.map(x => x.data.slice(0, 4)).sort().at(-1); renderIrs();
+      toast(fat.novas || fat.atualizadas ? `${fat.novas} faturas novas${fat.atualizadas ? `, ${fat.atualizadas} atualizadas` : ""}. Veja as deduções em IRS, no fim do Orçamento.` : "Estas faturas já estavam importadas.");
+    }, () => {});
+    return;
+  }
   mutate(d => {
     const o = d.orcamento; novos = porClass = 0;
     saldosNovos = aplicarSaldos(d.patrimonio, saldos);
+    if (faturas.length) fat = juntarFaturas(d, faturas);
     for (const mv of movs){
       const mes = mv.data.slice(0, 7), lista = o.movimentos[mes] ||= [];
       if (lista.some(x => x.k === mv.k)) continue;
@@ -1179,7 +1290,7 @@ $("#f-imp-mov").addEventListener("change", async e => {
     meses.forEach(m => recalcular(o, m));
   }, movs.length ? `Orçamento: importar ${movs.length} movimentos` : "Património: importar saldos").then(() => {
     const ult = [...meses].sort().at(-1); if (ult){ mesSel = ult; $("#o-mes").value = ult; renderOrc(); }
-    const sal = saldosNovos ? `${saldosNovos} ${saldosNovos === 1 ? "saldo atualizado" : "saldos atualizados"} no Património.` : "Os saldos já estavam atualizados.";
+    const sal = (saldosNovos ? `${saldosNovos} ${saldosNovos === 1 ? "saldo atualizado" : "saldos atualizados"} no Património.` : "Os saldos já estavam atualizados.") + (fat.novas ? ` ${fat.novas} faturas novas no IRS.` : "");
     if (!movs.length) return toast(sal);
     toast(novos ? `${novos} movimentos novos${porClass ? `, ${porClass} por classificar` : ""}. ${saldosNovos ? sal : ""}` : `Nada de novo: estes movimentos já estavam importados. ${saldosNovos ? sal : ""}`);
   }, () => {});

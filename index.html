@@ -304,17 +304,23 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <h2>Bicicleta</h2>
     <p class="small" id="b-total"></p>
 
+    <div class="panel" id="b-freq-wrap" hidden>
+      <div class="block">
+        <h3>Viagens frequentes</h3>
+        <p class="muted small">Um toque regista a viagem com a data de hoje.</p>
+        <div class="actions" id="b-trajetos"></div>
+      </div>
+    </div>
+
     <div class="panel">
       <form class="f" id="f-bici" autocomplete="off">
-        <h3>Registar uma viagem</h3>
-        <div class="actions" id="b-trajetos"></div>
+        <h3>Registar uma viagem nova</h3>
         <div class="fields">
           <label class="fl">Data<input id="b-data" type="date" required></label>
           <label class="fl">Distância (km)<input id="b-dist" type="number" min="0.1" step="0.1" inputmode="decimal" required placeholder="0"></label>
           <label class="fl">Nota<input id="b-nota" placeholder="Ex.: casa → trabalho"></label>
         </div>
         <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="b-ida-volta" style="width:auto"> Ida e volta (conta o dobro)</label>
-        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="b-guardar" style="width:auto"> Guardar como trajeto frequente (com o nome da nota)</label>
         <div class="actions"><button class="btn primary" type="submit">Registar</button></div>
       </form>
     </div>
@@ -577,7 +583,7 @@ const GRUPO_NOME = Object.fromEntries(GRUPOS);
    patrimonio.historico: [{mes, ativos, dividas, emergencia}], one per month, the state when last changed that month. */
 const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}},
   patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0},
-  bicicleta:{carro:{nome:"", combustivel:"gasoleo", consumo:6.5, preco:1.65, extraKm:0.08, estacionamento:0}, trajetos:[], viagens:[]},
+  bicicleta:{carro:{nome:"", combustivel:"gasoleo", consumo:6.5, preco:1.65, extraKm:0.08, estacionamento:0}, trajetos:[], viagens:[], ocultas:[]},
   sanita:{litros:6, precoM3:2.5, dias:{}}});
 const completo = d => { const v = vazio(), b = d.bicicleta || {};
   return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}, patrimonio: {...v.patrimonio, ...(d.patrimonio || {})},
@@ -1189,6 +1195,20 @@ function somaViagens(c, vs){
 }
 $("#b-data").value = hoje();
 
+/* Frequent trips: every trip already made (same note and distance) becomes a one-tap button, most repeated first.
+   bicicleta.trajetos (saved by hand in an earlier version) always show; bicicleta.ocultas hides one. */
+const chaveViagem = (nota, km) => `${(nota || "").trim().toLowerCase()}|${num(km)}`;
+function frequentes(b){
+  const m = new Map(), ocultas = new Set(b.ocultas || []);
+  for (const t of b.trajetos) m.set(chaveViagem(t.nome, t.km), {nota: t.nome, km: num(t.km), n: Infinity, ult: ""});
+  for (const v of b.viagens){
+    const k = chaveViagem(v.nota, v.km), x = m.get(k) || {nota: v.nota, km: num(v.km), n: 0, ult: ""};
+    x.n += 1; if (v.data > x.ult) x.ult = v.data; m.set(k, x);
+  }
+  return [...m].filter(([k]) => !ocultas.has(k)).map(([k, x]) => ({k, ...x, nome: x.nota || "Viagem"}))
+    .sort((a, b) => b.n - a.n || b.ult.localeCompare(a.ult)).slice(0, 6);
+}
+
 /* Dry toilet: one tap per use; sanita.dias = {"2026-10-14": 3}. Each use is a flush that did not happen. */
 const litros = n => n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("pt-PT")} m³` : `${Math.round(n).toLocaleString("pt-PT")} L`;
 function sanitaPoupou(sa, prefixo = ""){
@@ -1224,11 +1244,13 @@ function renderBici(){
   $("#b-total").innerHTML = tot.n ? `Desde ${esc(fmt(inicio, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${tot.n} ${tot.n === 1 ? "viagem" : "viagens"}</strong>, ${esc((Math.round(tot.km * 10) / 10).toLocaleString("pt-PT"))} km, <strong>${esc(euros(Math.round(tot.euros * 100) / 100))}</strong> poupados, ${esc(kg(tot.co2))} de CO₂ e ${esc((Math.round(tot.litros * 10) / 10).toLocaleString("pt-PT"))} L de combustível que não foram gastos.` : "Registe a primeira viagem de bicicleta para começar a contar.";
   const p1 = poupanca(c, 1);
   $("#b-por-km").textContent = `Com estes valores, cada km de bicicleta poupa ${euros(Math.round(p1.euros * 1000) / 1000)}${num(c.estacionamento) ? ` (mais ${euros(c.estacionamento)} de estacionamento por viagem)` : ""} e ${Math.round(p1.co2 * 1000)} g de CO₂${c.nome ? ` face ao ${c.nome}` : ""}.`;
-  $("#b-trajetos").innerHTML = b.trajetos.map(t => `<span class="chip" style="display:inline-flex;align-items:center;gap:2px;padding:0 0 0 8px"><button class="x" style="padding:6px 4px;color:var(--accent)" data-trajeto="${esc(t.id)}" title="Registar hoje">+ ${esc(t.nome)} · ${esc(String(t.km).replace(".", ","))} km</button><button class="x" data-tira-trajeto="${esc(t.id)}" title="Remover trajeto" aria-label="Remover ${esc(t.nome)}">×</button></span>`).join("");
+  const fr = frequentes(b);
+  $("#b-freq-wrap").hidden = !fr.length;
+  $("#b-trajetos").innerHTML = fr.map(t => `<span class="chip" style="display:inline-flex;align-items:center;gap:2px;padding:0 0 0 8px"><button class="x" style="padding:6px 4px;color:var(--accent)" data-rapida="${esc(t.k)}" title="Registar hoje">+ ${esc(t.nome)} · ${esc(String(t.km).replace(".", ","))} km</button><button class="x" data-oculta="${esc(t.k)}" title="Tirar das frequentes" aria-label="Tirar ${esc(t.nome)} das frequentes">×</button></span>`).join("");
   const vs = [...b.viagens].sort((a, b) => b.data.localeCompare(a.data) || (b.criado || "").localeCompare(a.criado || ""));
   lista($("#b-lista"), vs.slice(0, 40).map(v => { const p = poupanca(c, num(v.km)); return `<div class="row"><div class="grow"><span class="title">${esc(v.nota || "Viagem de bicicleta")}</span>
     <div class="meta"><span class="chip">${esc(fmt(v.data))}</span><span class="chip">${esc(String(v.km).replace(".", ","))} km</span><span class="chip">${esc(euros(Math.round(p.euros * 100) / 100))}</span><span class="chip">${esc(kg(p.co2))} CO₂</span></div></div>
-    <div class="row-actions"><button class="x" data-tira-viagem="${esc(v.id)}">Apagar</button></div></div>`; }), "Ainda sem viagens.");
+    <div class="row-actions"><button class="x" data-repete="${esc(v.id)}" title="Registar outra vez hoje">Repetir</button><button class="x" data-tira-viagem="${esc(v.id)}">Apagar</button></div></div>`; }), "Ainda sem viagens.");
   if (!$("#f-carro").contains(document.activeElement)){
     $("#b-carro").value = c.nome || ""; $("#b-comb").value = c.combustivel; $("#b-consumo").value = c.consumo; $("#b-preco").value = c.preco; $("#b-extra").value = c.extraKm; $("#b-estac").value = c.estacionamento || 0;
   }
@@ -1238,24 +1260,28 @@ $("#f-bici").addEventListener("submit", e => {
   e.preventDefault();
   const km = Math.round(num($("#b-dist").value) * ($("#b-ida-volta").checked ? 2 : 1) * 10) / 10, data = $("#b-data").value || hoje(), nota = $("#b-nota").value.trim();
   if (!(km > 0)) return;
-  const guardar = $("#b-guardar").checked && nota;
   mutate(d => {
     d.bicicleta.viagens.push({id: uid(), data, km, nota, criado: new Date().toISOString()});
-    if (guardar && !d.bicicleta.trajetos.some(t => t.nome === nota)) d.bicicleta.trajetos.push({id: uid(), nome: nota, km});
+    d.bicicleta.ocultas = (d.bicicleta.ocultas || []).filter(k => k !== chaveViagem(nota, km));
   }, `Bicicleta: ${km} km`).then(() => {
     const p = poupanca(S.bicicleta.carro, km);
-    $("#b-dist").value = ""; $("#b-nota").value = ""; $("#b-ida-volta").checked = false; $("#b-guardar").checked = false; $("#b-data").value = hoje();
+    $("#b-dist").value = ""; $("#b-nota").value = ""; $("#b-ida-volta").checked = false; $("#b-data").value = hoje();
     toast(`Boa! ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`);
   }, () => {});
 });
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
-  if (b.dataset.trajeto){
-    const t = S.bicicleta.trajetos.find(x => x.id === b.dataset.trajeto); if (!t) return;
-    mutate(d => { d.bicicleta.viagens.push({id: uid(), data: hoje(), km: t.km, nota: t.nome, criado: new Date().toISOString()}); }, `Bicicleta: ${t.nome}`)
-      .then(() => { const p = poupanca(S.bicicleta.carro, t.km); toast(`${t.nome}: ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`); }, () => {});
+  if (b.dataset.rapida || b.dataset.repete){
+    const t = b.dataset.rapida ? frequentes(S.bicicleta).find(x => x.k === b.dataset.rapida) : S.bicicleta.viagens.find(x => x.id === b.dataset.repete);
+    if (!t) return;
+    const nota = t.nota || "", km = num(t.km);
+    mutate(d => { d.bicicleta.viagens.push({id: uid(), data: hoje(), km, nota, criado: new Date().toISOString()}); }, `Bicicleta: ${nota || km + " km"}`)
+      .then(() => { const p = poupanca(S.bicicleta.carro, km); toast(`${nota || "Viagem"}: ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`); }, () => {});
   }
-  if (b.dataset.tiraTrajeto){ const id = b.dataset.tiraTrajeto; mutate(d => { d.bicicleta.trajetos = d.bicicleta.trajetos.filter(t => t.id !== id); }, "Bicicleta: remover trajeto").catch(() => {}); }
+  if (b.dataset.oculta){
+    const k = b.dataset.oculta;
+    mutate(d => { const bi = d.bicicleta; bi.ocultas = [...new Set([...(bi.ocultas || []), k])]; bi.trajetos = bi.trajetos.filter(t => chaveViagem(t.nome, t.km) !== k); }, "Bicicleta: tirar das frequentes").catch(() => {});
+  }
   if (b.dataset.tiraViagem){
     if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
     const id = b.dataset.tiraViagem; mutate(d => { d.bicicleta.viagens = d.bicicleta.viagens.filter(v => v.id !== id); }, "Bicicleta: apagar viagem").catch(() => {});

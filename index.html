@@ -301,6 +301,13 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
       </div>
     </div>
 
+    <div class="panel">
+      <div class="block">
+        <div class="block-head"><h2>Horta</h2><a class="small" href="../horta/">Abrir o Caderno da Horta</a></div>
+        <p class="small" id="h-resumo"></p>
+      </div>
+    </div>
+
     <h2>Bicicleta</h2>
     <p class="small" id="b-total"></p>
 
@@ -687,7 +694,7 @@ async function reload(){
   try { setStatus("A sincronizar…"); const {data} = await ghLoad(); S = data; ls.set("descomplica-cache", S); renderAll(); setStatus("Sincronizado", "ok"); }
   catch (e) { console.error(e); setStatus("Sem ligação", "bad"); toast(ghMsg(e)); }
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible"){ reload(); avisar(); } });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible"){ reload(); avisar(); carregarHorta(); } });
 
 /* ---------- tabs ---------- */
 function showTab(name){
@@ -1209,6 +1216,24 @@ function frequentes(b){
     .sort((a, b) => b.n - a.n || b.ult.localeCompare(a.ult)).slice(0, 6);
 }
 
+/* Garden: harvests from the Caderno da Horta (same site, so its token and cache are in this browser's storage). Read only. */
+let horta = null;
+const kgTxt = n => `${(Math.round(n * 100) / 100).toLocaleString("pt-PT")} kg`;
+function colhido(prefixo){
+  return (horta?.registos || []).filter(r => r.tipo === "colheita" && String(r.data).startsWith(prefixo))
+    .reduce((t, r) => ({n: t.n + 1, kg: t.kg + num(r.kg), valor: t.valor + num(r.valor)}), {n: 0, kg: 0, valor: 0});
+}
+async function carregarHorta(){
+  const hc = ls.get("horta-cfg");
+  if (hc?.token && hc?.repo){
+    try {
+      const r = await fetch(`https://api.github.com/repos/${hc.repo}/contents/dados.json`, {cache: "no-store", headers: {"Authorization": `Bearer ${hc.token}`, "Accept": "application/vnd.github+json"}});
+      if (r.ok){ horta = JSON.parse(b64dec((await r.json()).content)); renderBici(); return; }
+    } catch {}
+  }
+  horta = ls.get("horta-cache"); renderBici();
+}
+
 /* Dry toilet: one tap per use; sanita.dias = {"2026-10-14": 3}. Each use is a flush that did not happen. */
 const litros = n => n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("pt-PT")} m³` : `${Math.round(n).toLocaleString("pt-PT")} L`;
 function sanitaPoupou(sa, prefixo = ""){
@@ -1230,7 +1255,11 @@ $("#f-sanita").addEventListener("submit", e => {
 function renderBici(){
   const b = S.bicicleta, c = b.carro, mes = somaViagens(c, b.viagens.filter(v => v.data.startsWith(mesAtual()))), tot = somaViagens(c, b.viagens);
   const sMes = sanitaPoupou(S.sanita, mesAtual()), sTot = sanitaPoupou(S.sanita), nHoje = num(S.sanita.dias[hoje()]);
-  $("#b-euros b").textContent = euros(Math.round((mes.euros + sMes.euros) * 100) / 100);
+  const hMes = colhido(mesAtual()), hAno = colhido(mesAtual().slice(0, 4));
+  $("#b-euros b").textContent = euros(Math.round((mes.euros + sMes.euros + hMes.valor) * 100) / 100);
+  $("#h-resumo").innerHTML = !horta ? "Neste navegador ainda não há dados da horta. Abra o Caderno da Horta uma vez (ligado ao GitHub) e volte aqui." :
+    !hAno.n ? "Registe as colheitas com o peso no Caderno da Horta para ver aqui quanto valem." :
+    `Este mês: ${esc(kgTxt(hMes.kg))} colhidos, que custariam <strong>${esc(euros(Math.round(hMes.valor * 100) / 100))}</strong> no supermercado. Em ${esc(mesAtual().slice(0, 4))}: ${esc(kgTxt(hAno.kg))} e <strong>${esc(euros(Math.round(hAno.valor * 100) / 100))}</strong>.`;
   $("#b-co2 b").textContent = kg(mes.co2);
   $("#b-agua b").textContent = litros(sMes.litros);
   const sa = S.sanita;
@@ -1364,6 +1393,7 @@ const acao = new URLSearchParams(location.search).get("acao");
 if (acao) history.replaceState(null, "", location.pathname);
 const depois = () => { if (acao === "sanita"){ showTab("bicicleta"); $("#s-usei").click(); } };
 if (online()) reload().then(avisar).then(depois); else { avisar(); depois(); }
+carregarHorta();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 setInterval(renderAll, 10 * 60e3);
 </script>

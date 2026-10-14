@@ -126,7 +126,7 @@ dialog::backdrop{background:rgb(0 0 0 / .4)}
 .grupo-head span{font-variant-numeric:tabular-nums}
 ol.steps{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
 code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
-@media (max-width:420px){ .stat b{font-size:1.25rem} nav.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px} nav.tabs button{padding:8px 4px} }
+@media (max-width:420px){ .stat b{font-size:1.25rem} nav.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px} nav.tabs button{padding:8px 2px;font-size:.78rem} }
 </style>
 </head>
 <body>
@@ -143,6 +143,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <button data-tab="agenda" aria-selected="true">Agenda</button>
     <button data-tab="orcamento" aria-selected="false">Orçamento</button>
     <button data-tab="patrimonio" aria-selected="false">Património</button>
+    <button data-tab="bicicleta" aria-selected="false">Bicicleta</button>
     <button data-tab="espera" aria-selected="false">Espera 48 h</button>
     <button data-tab="dicas" aria-selected="false">Dicas</button>
     <button data-tab="mais" aria-selected="false">Definições</button>
@@ -265,6 +266,55 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <details class="more block">
       <summary>Evolução por mês</summary>
       <div class="list" id="p-hist"></div>
+    </details>
+  </section>
+
+  <!-- ============ BICICLETA ============ -->
+  <section class="tab" id="tab-bicicleta" hidden>
+    <div class="stats">
+      <div class="stat good" id="b-euros"><span class="label">Poupado no mês</span><b>0 €</b></div>
+      <div class="stat good" id="b-co2"><span class="label">CO₂ evitado</span><b>0 kg</b></div>
+      <div class="stat" id="b-km"><span class="label">Km no mês</span><b>0</b></div>
+    </div>
+    <p class="small" id="b-total"></p>
+
+    <div class="panel">
+      <form class="f" id="f-bici" autocomplete="off">
+        <h2>Registar uma viagem</h2>
+        <div class="actions" id="b-trajetos"></div>
+        <div class="fields">
+          <label class="fl">Data<input id="b-data" type="date" required></label>
+          <label class="fl">Distância (km)<input id="b-dist" type="number" min="0.1" step="0.1" inputmode="decimal" required placeholder="0"></label>
+          <label class="fl">Nota<input id="b-nota" placeholder="Ex.: casa → trabalho"></label>
+        </div>
+        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="b-ida-volta" style="width:auto"> Ida e volta (conta o dobro)</label>
+        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="b-guardar" style="width:auto"> Guardar como trajeto frequente (com o nome da nota)</label>
+        <div class="actions"><button class="btn primary" type="submit">Registar</button></div>
+      </form>
+    </div>
+
+    <div class="block">
+      <h2>Viagens</h2>
+      <div class="list" id="b-lista"></div>
+    </div>
+
+    <details class="more block">
+      <summary>Comparação com o carro</summary>
+      <div class="panel">
+        <form class="f" id="f-carro" autocomplete="off">
+          <p class="small" id="b-por-km"></p>
+          <div class="fields">
+            <label class="fl">Carro<input id="b-carro" placeholder="Ex.: Dacia Lodgy"></label>
+            <label class="fl">Combustível<select id="b-comb"><option value="gasoleo">Gasóleo</option><option value="gasolina">Gasolina</option><option value="gpl">GPL</option></select></label>
+            <label class="fl">Consumo na cidade (L/100 km)<input id="b-consumo" type="number" min="0" step="0.1" inputmode="decimal"></label>
+            <label class="fl">Preço do combustível (€/L)<input id="b-preco" type="number" min="0" step="0.001" inputmode="decimal"></label>
+            <label class="fl">Desgaste e manutenção (€/km)<input id="b-extra" type="number" min="0" step="0.01" inputmode="decimal"></label>
+            <label class="fl">Estacionamento por viagem (€)<input id="b-estac" type="number" min="0" step="0.05" inputmode="decimal"></label>
+          </div>
+          <p class="muted small">O CO₂ é calculado pelos litros não gastos: cerca de 2,68 kg por litro de gasóleo, 2,31 de gasolina e 1,66 de GPL (só o escape; valores aproximados). O desgaste inclui pneus, travões, óleo e revisões. As alterações aplicam-se a todas as viagens, também às antigas.</p>
+          <div class="actions"><button class="btn primary" type="submit">Guardar</button></div>
+        </form>
+      </div>
     </details>
   </section>
 
@@ -499,8 +549,11 @@ const GRUPO_NOME = Object.fromEntries(GRUPOS);
    extrato = the line name in the statement's "Resumo das Contas", so importing the PDF updates it.
    patrimonio.historico: [{mes, ativos, dividas, emergencia}], one per month, the state when last changed that month. */
 const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}},
-  patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0}});
-const completo = d => { const v = vazio(); return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}, patrimonio: {...v.patrimonio, ...(d.patrimonio || {})}}; };
+  patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0},
+  bicicleta:{carro:{nome:"", combustivel:"gasoleo", consumo:6.5, preco:1.65, extraKm:0.08, estacionamento:0}, trajetos:[], viagens:[]}});
+const completo = d => { const v = vazio(), b = d.bicicleta || {};
+  return {...v, ...d, orcamento: {...v.orcamento, ...(d.orcamento || {})}, patrimonio: {...v.patrimonio, ...(d.patrimonio || {})},
+    bicicleta: {...v.bicicleta, ...b, carro: {...v.bicicleta.carro, ...(b.carro || {})}}}; };
 let S = vazio(), editId = null;
 
 const $ = (s, r=document) => r.querySelector(s);
@@ -663,7 +716,7 @@ function renderAll(){
   const dec = S.espera.filter(e => e.estado).sort((a, b) => (b.decidido||"").localeCompare(a.decidido||""));
   lista($("#l-decididos"), dec.slice(0, 30).map(e => `<div class="row"><div class="grow"><span>${esc(e.nome)}</span></div><span class="chip ${e.estado === "desisti" ? "" : "today"}">${e.estado === "desisti" ? "Poupou " + esc(euros(e.preco)) : "Comprou"}</span></div>`), "Ainda nada.");
 
-  renderOrc(); renderPat();
+  renderOrc(); renderPat(); renderBici();
 
   document.title = agora.length ? `(${agora.length}) Descomplica` : "Descomplica";
   try { agora.length ? navigator.setAppBadge?.(agora.length) : navigator.clearAppBadge?.(); } catch {}
@@ -1093,6 +1146,71 @@ $("#c-apagar").addEventListener("click", e => {
   if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
   const id = editConta; $("#dlg-conta").close();
   mutate(d => { d.patrimonio.contas = d.patrimonio.contas.filter(y => y.id !== id); fotografia(d.patrimonio); }, "Património: apagar").then(() => toast("Apagado."), () => {});
+});
+
+/* ---------- bicicleta: what each trip by bike saved compared with the car ---------- */
+const CO2_LITRO = {gasoleo: 2.68, gasolina: 2.31, gpl: 1.66};
+const kg = n => `${(Math.round(n * 10) / 10).toLocaleString("pt-PT")} kg`;
+/* Per trip: fuel not burnt + wear per km + parking. Uses the current car settings, so a change applies to every trip. */
+function poupanca(c, km){
+  const litros = km * num(c.consumo) / 100;
+  return {litros, euros: litros * num(c.preco) + km * num(c.extraKm) + num(c.estacionamento), co2: litros * (CO2_LITRO[c.combustivel] || CO2_LITRO.gasoleo)};
+}
+function somaViagens(c, vs){
+  return vs.reduce((t, v) => { const p = poupanca(c, num(v.km)); return {n: t.n + 1, km: t.km + num(v.km), euros: t.euros + p.euros, co2: t.co2 + p.co2, litros: t.litros + p.litros}; }, {n: 0, km: 0, euros: 0, co2: 0, litros: 0});
+}
+$("#b-data").value = hoje();
+
+function renderBici(){
+  const b = S.bicicleta, c = b.carro, mes = somaViagens(c, b.viagens.filter(v => v.data.startsWith(mesAtual()))), tot = somaViagens(c, b.viagens);
+  $("#b-euros b").textContent = euros(Math.round(mes.euros * 100) / 100);
+  $("#b-co2 b").textContent = kg(mes.co2);
+  $("#b-km b").textContent = Math.round(mes.km * 10) / 10;
+  const inicio = b.viagens.length ? b.viagens.reduce((m, v) => v.data < m ? v.data : m, b.viagens[0].data) : null;
+  $("#b-total").innerHTML = tot.n ? `Desde ${esc(fmt(inicio, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${tot.n} ${tot.n === 1 ? "viagem" : "viagens"}</strong>, ${esc((Math.round(tot.km * 10) / 10).toLocaleString("pt-PT"))} km, <strong>${esc(euros(Math.round(tot.euros * 100) / 100))}</strong> poupados, ${esc(kg(tot.co2))} de CO₂ e ${esc((Math.round(tot.litros * 10) / 10).toLocaleString("pt-PT"))} L de combustível que não foram gastos.` : "Registe a primeira viagem de bicicleta para começar a contar.";
+  const p1 = poupanca(c, 1);
+  $("#b-por-km").textContent = `Com estes valores, cada km de bicicleta poupa ${euros(Math.round(p1.euros * 1000) / 1000)}${num(c.estacionamento) ? ` (mais ${euros(c.estacionamento)} de estacionamento por viagem)` : ""} e ${Math.round(p1.co2 * 1000)} g de CO₂${c.nome ? ` face ao ${c.nome}` : ""}.`;
+  $("#b-trajetos").innerHTML = b.trajetos.map(t => `<span class="chip" style="display:inline-flex;align-items:center;gap:2px;padding:0 0 0 8px"><button class="x" style="padding:6px 4px;color:var(--accent)" data-trajeto="${esc(t.id)}" title="Registar hoje">+ ${esc(t.nome)} · ${esc(String(t.km).replace(".", ","))} km</button><button class="x" data-tira-trajeto="${esc(t.id)}" title="Remover trajeto" aria-label="Remover ${esc(t.nome)}">×</button></span>`).join("");
+  const vs = [...b.viagens].sort((a, b) => b.data.localeCompare(a.data) || (b.criado || "").localeCompare(a.criado || ""));
+  lista($("#b-lista"), vs.slice(0, 40).map(v => { const p = poupanca(c, num(v.km)); return `<div class="row"><div class="grow"><span class="title">${esc(v.nota || "Viagem de bicicleta")}</span>
+    <div class="meta"><span class="chip">${esc(fmt(v.data))}</span><span class="chip">${esc(String(v.km).replace(".", ","))} km</span><span class="chip">${esc(euros(Math.round(p.euros * 100) / 100))}</span><span class="chip">${esc(kg(p.co2))} CO₂</span></div></div>
+    <div class="row-actions"><button class="x" data-tira-viagem="${esc(v.id)}">Apagar</button></div></div>`; }), "Ainda sem viagens.");
+  if (!$("#f-carro").contains(document.activeElement)){
+    $("#b-carro").value = c.nome || ""; $("#b-comb").value = c.combustivel; $("#b-consumo").value = c.consumo; $("#b-preco").value = c.preco; $("#b-extra").value = c.extraKm; $("#b-estac").value = c.estacionamento || 0;
+  }
+}
+
+$("#f-bici").addEventListener("submit", e => {
+  e.preventDefault();
+  const km = Math.round(num($("#b-dist").value) * ($("#b-ida-volta").checked ? 2 : 1) * 10) / 10, data = $("#b-data").value || hoje(), nota = $("#b-nota").value.trim();
+  if (!(km > 0)) return;
+  const guardar = $("#b-guardar").checked && nota;
+  mutate(d => {
+    d.bicicleta.viagens.push({id: uid(), data, km, nota, criado: new Date().toISOString()});
+    if (guardar && !d.bicicleta.trajetos.some(t => t.nome === nota)) d.bicicleta.trajetos.push({id: uid(), nome: nota, km});
+  }, `Bicicleta: ${km} km`).then(() => {
+    const p = poupanca(S.bicicleta.carro, km);
+    $("#b-dist").value = ""; $("#b-nota").value = ""; $("#b-ida-volta").checked = false; $("#b-guardar").checked = false; $("#b-data").value = hoje();
+    toast(`Boa! ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`);
+  }, () => {});
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.trajeto){
+    const t = S.bicicleta.trajetos.find(x => x.id === b.dataset.trajeto); if (!t) return;
+    mutate(d => { d.bicicleta.viagens.push({id: uid(), data: hoje(), km: t.km, nota: t.nome, criado: new Date().toISOString()}); }, `Bicicleta: ${t.nome}`)
+      .then(() => { const p = poupanca(S.bicicleta.carro, t.km); toast(`${t.nome}: ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`); }, () => {});
+  }
+  if (b.dataset.tiraTrajeto){ const id = b.dataset.tiraTrajeto; mutate(d => { d.bicicleta.trajetos = d.bicicleta.trajetos.filter(t => t.id !== id); }, "Bicicleta: remover trajeto").catch(() => {}); }
+  if (b.dataset.tiraViagem){
+    if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
+    const id = b.dataset.tiraViagem; mutate(d => { d.bicicleta.viagens = d.bicicleta.viagens.filter(v => v.id !== id); }, "Bicicleta: apagar viagem").catch(() => {});
+  }
+});
+$("#f-carro").addEventListener("submit", e => {
+  e.preventDefault();
+  const c = {nome: $("#b-carro").value.trim(), combustivel: $("#b-comb").value, consumo: num($("#b-consumo").value), preco: num($("#b-preco").value), extraKm: num($("#b-extra").value), estacionamento: num($("#b-estac").value)};
+  mutate(d => { d.bicicleta.carro = c; }, "Bicicleta: valores do carro").then(() => { document.activeElement?.blur(); toast("Valores do carro guardados."); }, () => {});
 });
 
 /* ---------- reminders ---------- */

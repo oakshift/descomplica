@@ -674,8 +674,9 @@ function ghMsg(e){
 }
 
 let busy = Promise.resolve();
-/* Apply a change to the freshest copy of the data and save it. Retries once if another device saved in between. */
-function mutate(fn, msg){
+/* Apply a change to the freshest copy of the data and save it. Retries once if another device saved in between.
+   opts.fila: a quick log (see OPS) that waits in this browser instead of failing when there is no network. */
+function mutate(fn, msg, opts = {}){
   const run = async () => {
     if (!online()){ fn(S); ls.set("descomplica-cache", S); renderAll(); return; }
     setStatus("A guardar…");
@@ -688,13 +689,64 @@ function mutate(fn, msg){
       } catch (e) { if (!(e.status === 409 || e.status === 422) || attempt) throw e; }
     }
   };
-  busy = busy.then(run, run).catch(e => { console.error(e); setStatus("Erro ao guardar", "bad"); toast(online() ? ghMsg(e) : "Não foi possível guardar."); renderAll(); throw e; });
+  busy = busy.then(run, run).catch(e => {
+    if (opts.fila && (!(e instanceof GhError) || e.status >= 500)){ enfileirar(opts.fila); return "fila"; }
+    console.error(e); setStatus("Erro ao guardar", "bad"); toast(online() ? ghMsg(e) : "Não foi possível guardar."); renderAll(); throw e;
+  });
   return busy;
 }
+
+/* ---------- quick logs without network ---------- */
+/* Named operations with plain arguments, so they can be stored and applied later to the freshest data.
+   d._feitos keeps the ids already applied, so a log sent twice counts once. */
+const OPS = {
+  sanita(d, {dia, delta}){ const ds = d.sanita.dias, n = Math.max(0, num(ds[dia]) + delta); if (n) ds[dia] = n; else delete ds[dia]; },
+  viagem(d, {v}){
+    const b = d.bicicleta; if (b.viagens.some(x => x.id === v.id)) return;
+    b.viagens.push(v); b.ocultas = (b.ocultas || []).filter(k => k !== chaveViagem(v.nota, v.km));
+  },
+  feito(d, {id, dia}){
+    const x = d.tarefas.find(y => y.id === id); if (!x) return;
+    d.historico.unshift({titulo: x.titulo, data: dia}); d.historico = d.historico.slice(0, 200);
+    if (x.freq === "once") d.tarefas = d.tarefas.filter(y => y.id !== id); else x.prox = seguinte(x);
+  }
+};
+function aplicar(d, o){
+  const f = d._feitos ||= []; if (f.includes(o.id)) return;
+  OPS[o.op](d, o.args); f.push(o.id); if (f.length > 300) f.splice(0, f.length - 300);
+}
+const fila = () => ls.get("descomplica-fila") || [];
+/* Resolves to "fila" when the log was kept for later. */
+function registar(op, args, msg){
+  const o = {id: uid(), op, args, msg};
+  if (online() && navigator.onLine === false){ enfileirar(o); return Promise.resolve("fila"); }
+  return mutate(d => aplicar(d, o), msg, {fila: o});
+}
+function enfileirar(o){
+  ls.set("descomplica-fila", [...fila(), o]);
+  aplicar(S, o); ls.set("descomplica-cache", S); renderAll();
+  toast("Sem rede: fica guardado neste aparelho e é enviado quando houver ligação."); estadoFila();
+}
+function estadoFila(){ const n = fila().length; if (n) setStatus(`${n} por enviar`, "bad"); }
+let enviando = false;
+async function enviarFila(){
+  const f = fila(); if (!f.length || enviando || !online() || navigator.onLine === false) return;
+  enviando = true;
+  try {
+    await mutate(d => f.forEach(o => aplicar(d, o)), f.length === 1 ? f[0].msg : `${f.length} registos feitos sem rede`);
+    const ids = new Set(f.map(o => o.id)); ls.set("descomplica-fila", fila().filter(o => !ids.has(o.id)));
+    toast(f.length === 1 ? "O registo feito sem rede foi enviado." : `Os ${f.length} registos feitos sem rede foram enviados.`);
+  } catch {} finally { enviando = false; estadoFila(); }
+}
+window.addEventListener("online", () => reload());
 async function reload(){
   if (!online()) return;
-  try { setStatus("A sincronizar…"); const {data} = await ghLoad(); S = data; ls.set("descomplica-cache", S); renderAll(); setStatus("Sincronizado", "ok"); }
-  catch (e) { console.error(e); setStatus("Sem ligação", "bad"); toast(ghMsg(e)); }
+  try {
+    setStatus("A sincronizar…"); const {data} = await ghLoad();
+    S = data; fila().forEach(o => aplicar(S, o)); ls.set("descomplica-cache", S); renderAll(); setStatus("Sincronizado", "ok");
+    enviarFila();
+  }
+  catch (e) { console.error(e); setStatus("Sem ligação", "bad"); if (!fila().length) toast(ghMsg(e)); estadoFila(); }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible"){ reload(); avisar(); carregarHorta(); } });
 
@@ -770,11 +822,8 @@ document.addEventListener("change", e => {
   const id = e.target.dataset?.feito; if (!id) return;
   e.target.closest(".row").classList.add("done"); e.target.disabled = true;
   const t = S.tarefas.find(x => x.id === id);
-  mutate(d => {
-    const x = d.tarefas.find(y => y.id === id); if (!x) return;
-    d.historico.unshift({titulo: x.titulo, data: hoje()}); d.historico = d.historico.slice(0, 200);
-    if (x.freq === "once") d.tarefas = d.tarefas.filter(y => y.id !== id); else x.prox = seguinte(x);
-  }, `Feito: ${t?.titulo || ""}`).then(() => toast(t && t.freq !== "once" ? `Feito. Próxima vez: ${fmt(seguinte(t))}` : "Feito."), () => {});
+  registar("feito", {id, dia: hoje()}, `Feito: ${t?.titulo || ""}`)
+    .then(r => { if (r !== "fila") toast(t && t.freq !== "once" ? `Feito. Próxima vez: ${fmt(seguinte(t))}` : "Feito."); }, () => {});
 });
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1255,9 +1304,9 @@ function sanitaPoupou(sa, prefixo = ""){
 }
 function usarSanita(delta){
   const dia = hoje();
-  return mutate(d => { const ds = d.sanita.dias, n = Math.max(0, num(ds[dia]) + delta); if (n) ds[dia] = n; else delete ds[dia]; }, delta > 0 ? "Sanita seca: +1" : "Sanita seca: desfazer");
+  return registar("sanita", {dia, delta}, delta > 0 ? "Sanita seca: +1" : "Sanita seca: desfazer");
 }
-$("#s-usei").addEventListener("click", () => usarSanita(1).then(() => { const sa = S.sanita; toast(`Registado: ${num(sa.litros)} L de água poupados.`); }, () => {}));
+$("#s-usei").addEventListener("click", () => usarSanita(1).then(r => { if (r !== "fila") toast(`Registado: ${num(S.sanita.litros)} L de água poupados.`); }, () => {}));
 $("#s-desfazer").addEventListener("click", () => usarSanita(-1).catch(() => {}));
 $("#f-sanita").addEventListener("submit", e => {
   e.preventDefault();
@@ -1302,13 +1351,10 @@ $("#f-bici").addEventListener("submit", e => {
   e.preventDefault();
   const km = Math.round(num($("#b-dist").value) * ($("#b-ida-volta").checked ? 2 : 1) * 10) / 10, data = $("#b-data").value || hoje(), nota = $("#b-nota").value.trim();
   if (!(km > 0)) return;
-  mutate(d => {
-    d.bicicleta.viagens.push({id: uid(), data, km, nota, criado: new Date().toISOString()});
-    d.bicicleta.ocultas = (d.bicicleta.ocultas || []).filter(k => k !== chaveViagem(nota, km));
-  }, `Bicicleta: ${km} km`).then(() => {
+  registar("viagem", {v: {id: uid(), data, km, nota, criado: new Date().toISOString()}}, `Bicicleta: ${km} km`).then(r => {
     const p = poupanca(S.bicicleta.carro, km);
     $("#b-dist").value = ""; $("#b-nota").value = ""; $("#b-ida-volta").checked = false; $("#b-data").value = hoje();
-    toast(`Boa! ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`);
+    if (r !== "fila") toast(`Boa! ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`);
   }, () => {});
 });
 document.addEventListener("click", e => {
@@ -1317,8 +1363,8 @@ document.addEventListener("click", e => {
     const t = b.dataset.rapida ? frequentes(S.bicicleta).find(x => x.k === b.dataset.rapida) : S.bicicleta.viagens.find(x => x.id === b.dataset.repete);
     if (!t) return;
     const nota = t.nota || "", km = num(t.km);
-    mutate(d => { d.bicicleta.viagens.push({id: uid(), data: hoje(), km, nota, criado: new Date().toISOString()}); }, `Bicicleta: ${nota || km + " km"}`)
-      .then(() => { const p = poupanca(S.bicicleta.carro, km); toast(`${nota || "Viagem"}: ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`); }, () => {});
+    registar("viagem", {v: {id: uid(), data: hoje(), km, nota, criado: new Date().toISOString()}}, `Bicicleta: ${nota || km + " km"}`)
+      .then(r => { if (r === "fila") return; const p = poupanca(S.bicicleta.carro, km); toast(`${nota || "Viagem"}: ${euros(Math.round(p.euros * 100) / 100)} e ${kg(p.co2)} de CO₂ poupados.`); }, () => {});
   }
   if (b.dataset.oculta){
     const k = b.dataset.oculta;

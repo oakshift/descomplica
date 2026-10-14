@@ -278,6 +278,14 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
 
     <div class="block">
       <div class="block-head">
+        <h2>Metas</h2>
+        <button class="btn primary" id="btn-meta">+ Nova meta</button>
+      </div>
+      <div class="list" id="p-metas"></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
         <h2>Contas, investimentos e dívidas</h2>
         <div class="actions">
           <button class="btn" id="btn-imp-saldos">Importar saldos</button>
@@ -336,6 +344,16 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
 
     <h2>Bicicleta</h2>
     <p class="small" id="b-total"></p>
+    <div class="panel">
+      <div class="block">
+        <div class="grupo-head"><h3>Meta do mês</h3><span class="small" id="b-meta-txt"></span></div>
+        <div class="barra" role="progressbar" aria-label="Meta de km do mês" aria-valuemin="0" aria-valuemax="100" id="b-meta-barra"><span></span></div>
+        <div class="actions">
+          <label class="fl" style="max-width:10rem">Meta (km por mês)<input id="b-meta" type="number" min="0" step="5" inputmode="numeric" placeholder="0"></label>
+          <span class="small" id="b-semanas"></span>
+        </div>
+      </div>
+    </div>
 
     <div class="panel" id="b-freq-wrap" hidden>
       <div class="block">
@@ -533,6 +551,28 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
   </form>
 </dialog>
 
+<dialog id="dlg-meta">
+  <form class="f" id="f-meta" method="dialog" autocomplete="off">
+    <h2 id="m-titulo">Nova meta</h2>
+    <label class="fl">Meta<input id="m-nome" required placeholder="Ex.: obras do condomínio"></label>
+    <div class="fields">
+      <label class="fl">Objetivo (€)<input id="m-objetivo" type="number" min="1" step="1" inputmode="decimal" required></label>
+      <label class="fl">Até (opcional)<input id="m-prazo" type="month"></label>
+    </div>
+    <div class="fields">
+      <label class="fl">Conta onde está o dinheiro<select id="m-conta"></select></label>
+      <label class="fl">Ou valor já juntado (€)<input id="m-atual" type="number" min="0" step="1" inputmode="decimal"></label>
+    </div>
+    <p class="muted small">Com uma conta escolhida, o progresso segue o valor dessa conta (atualizado à mão ou pelo extrato).</p>
+    <div class="actions">
+      <button class="btn primary" type="submit" value="ok">Guardar</button>
+      <button class="btn" type="button" id="m-cancelar">Cancelar</button>
+      <span style="flex:1"></span>
+      <button class="btn danger" type="button" id="m-apagar">Apagar</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-conta">
   <form class="f" id="f-conta" method="dialog" autocomplete="off">
     <h2 id="c-titulo">Nova conta</h2>
@@ -615,7 +655,7 @@ const GRUPO_NOME = Object.fromEntries(GRUPOS);
    extrato = the line name in the statement's "Resumo das Contas", so importing the PDF updates it.
    patrimonio.historico: [{mes, ativos, dividas, emergencia}], one per month, the state when last changed that month. */
 const vazio = () => ({tarefas:[], historico:[], espera:[], orcamento:{rendimento:0, linhas:[], meses:{}, regras:[], movimentos:{}},
-  patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0},
+  patrimonio:{contas:[], historico:[], mesesEmergencia:6, essenciais:0, metas:[]},
   bicicleta:{carro:{nome:"", combustivel:"gasoleo", consumo:6.5, preco:1.65, extraKm:0.08, estacionamento:0}, trajetos:[], viagens:[], ocultas:[]},
   sanita:{litros:6, precoM3:2.5, dias:{}}});
 const completo = d => { const v = vazio(), b = d.bicicleta || {};
@@ -1355,7 +1395,50 @@ function aplicarSaldos(p, saldos){
   return n;
 }
 
+/* ---------- goals: an amount to reach, optionally by a month, followed by an account or by hand ---------- */
+let editMeta = null;
+const mesesAte = prazo => { const [y, m] = prazo.split("-").map(Number), h = new Date(); return (y - h.getFullYear()) * 12 + (m - 1 - h.getMonth()) + 1; };
+function progressoMeta(p, m){
+  const c = m.conta && p.contas.find(x => x.id === m.conta), atual = c ? num(c.valor) : num(m.atual);
+  const falta = Math.max(0, num(m.objetivo) - atual), meses = m.prazo ? mesesAte(m.prazo) : null;
+  return {atual, falta, pct: num(m.objetivo) ? Math.min(100, Math.round(atual / num(m.objetivo) * 100)) : 0, porMes: meses > 0 ? falta / meses : null, meses, conta: c};
+}
+function renderMetas(){
+  const p = S.patrimonio;
+  lista($("#p-metas"), (p.metas || []).map(m => { const g = progressoMeta(p, m); return `<div class="row"><div class="grow">
+      <span class="title">${esc(m.nome)}</span>
+      <div class="barra" role="progressbar" aria-label="${esc(m.nome)}" aria-valuenow="${g.pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${g.pct}%"></span></div>
+      <span class="muted small">${esc(euros(Math.round(g.atual)))} de ${esc(euros(m.objetivo))} (${g.pct}%)${g.conta ? ` · ${esc(g.conta.nome)}` : ""}${
+        !g.falta ? " · cumprida" : m.prazo ? (g.meses > 0 ? ` · até ${esc(mesCurto(m.prazo))} ${esc(m.prazo.slice(0, 4))}: ${esc(euros(Math.ceil(g.porMes)))}/mês` : " · o prazo já passou") : ` · faltam ${esc(euros(Math.round(g.falta)))}`}</span>
+    </div><div class="row-actions"><button class="x" data-meta="${esc(m.id)}">Editar</button></div></div>`; }), "Ainda sem metas. Ex.: obras do condomínio, férias, carro novo.");
+}
+function abrirMeta(id){
+  editMeta = id || null;
+  const m = id ? S.patrimonio.metas.find(x => x.id === id) : null;
+  $("#m-titulo").textContent = m ? "Editar meta" : "Nova meta";
+  $("#m-conta").innerHTML = `<option value="">Nenhuma (escrevo o valor)</option>` + S.patrimonio.contas.filter(c => c.tipo !== "divida").map(c => `<option value="${esc(c.id)}">${esc(c.nome)}</option>`).join("");
+  $("#m-nome").value = m?.nome || ""; $("#m-objetivo").value = m?.objetivo || ""; $("#m-prazo").value = m?.prazo || ""; $("#m-conta").value = m?.conta || ""; $("#m-atual").value = m?.atual || "";
+  $("#m-apagar").hidden = !m; delete $("#m-apagar").dataset.armed; $("#m-apagar").textContent = "Apagar";
+  $("#dlg-meta").showModal(); if (!m) $("#m-nome").focus();
+}
+document.addEventListener("click", e => { const b = e.target.closest("button[data-meta]"); if (b) abrirMeta(b.dataset.meta); });
+$("#btn-meta").addEventListener("click", () => abrirMeta());
+$("#m-cancelar").addEventListener("click", () => $("#dlg-meta").close());
+$("#f-meta").addEventListener("submit", () => {
+  const v = {nome: $("#m-nome").value.trim(), objetivo: num($("#m-objetivo").value), prazo: $("#m-prazo").value, conta: $("#m-conta").value, atual: num($("#m-atual").value)};
+  if (!v.nome || !v.objetivo) return;
+  const id = editMeta;
+  mutate(d => { const ms = d.patrimonio.metas ||= [], x = id && ms.find(y => y.id === id); if (x) Object.assign(x, v); else ms.push({id: uid(), ...v}); }, `Meta: ${v.nome}`).catch(() => {});
+});
+$("#m-apagar").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed){ b.dataset.armed = "1"; b.textContent = "Confirmar"; return; }
+  const id = editMeta; $("#dlg-meta").close();
+  mutate(d => { d.patrimonio.metas = (d.patrimonio.metas || []).filter(y => y.id !== id); }, "Apagar meta").then(() => toast("Meta apagada."), () => {});
+});
+
 function renderPat(){
+  renderMetas();
   const p = S.patrimonio, t = totais(p), liquido = t.ativos - t.dividas;
   const meta = num(p.essenciais) * (num(p.mesesEmergencia) || 6), pct = meta ? Math.min(100, Math.round(t.emergencia / meta * 100)) : 0;
   const ritmo = p.contas.filter(c => c.emergencia).reduce((s, c) => s + num(c.mensal), 0), falta = Math.max(0, meta - t.emergencia);
@@ -1440,6 +1523,16 @@ function somaViagens(c, vs){
 }
 $("#b-data").value = hoje();
 
+/* Consecutive weeks (Monday to Sunday) with at least one trip; the current week only breaks the run once it is over. */
+function semanasSeguidas(vs){
+  const seg = d => { const x = parse(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return iso(x); };
+  const tem = new Set(vs.map(v => seg(v.data))), w = parse(seg(hoje()));
+  if (!tem.has(iso(w))) w.setDate(w.getDate() - 7);
+  let n = 0; while (tem.has(iso(w))){ n++; w.setDate(w.getDate() - 7); }
+  return n;
+}
+$("#b-meta").addEventListener("change", e => { const v = Math.max(0, Math.round(num(e.target.value))); mutate(d => { d.bicicleta.metaKm = v; }, "Bicicleta: meta do mês").catch(() => {}); });
+
 /* Frequent trips: every trip already made (same note and distance) becomes a one-tap button, most repeated first.
    bicicleta.trajetos (saved by hand in an earlier version) always show; bicicleta.ocultas hides one. */
 const chaveViagem = (nota, km) => `${(nota || "").trim().toLowerCase()}|${num(km)}`;
@@ -1508,6 +1601,12 @@ function renderBici(){
     `Este mês: ${sMes.usos} ${sMes.usos === 1 ? "vez" : "vezes"}, <strong>${esc(litros(sMes.litros))}</strong> e ${esc(euros(Math.round(sMes.euros * 100) / 100))}. Desde ${esc(fmt(desde, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${esc(litros(sTot.litros))}</strong> de água e <strong>${esc(euros(Math.round(sTot.euros * 100) / 100))}</strong>.`;
   if (!$("#f-sanita").contains(document.activeElement)){ $("#s-litros").value = sa.litros; $("#s-preco").value = sa.precoM3; }
   const inicio = b.viagens.length ? b.viagens.reduce((m, v) => v.data < m ? v.data : m, b.viagens[0].data) : null;
+  const meta = num(b.metaKm), pctKm = meta ? Math.min(100, Math.round(mes.km / meta * 100)) : 0;
+  $("#b-meta-txt").textContent = meta ? `${(Math.round(mes.km * 10) / 10).toLocaleString("pt-PT")} de ${meta} km${pctKm >= 100 ? " · cumprida!" : ""}` : `${(Math.round(mes.km * 10) / 10).toLocaleString("pt-PT")} km este mês`;
+  $("#b-meta-barra").hidden = !meta; $("#b-meta-barra span").style.width = `${pctKm}%`; $("#b-meta-barra").setAttribute("aria-valuenow", pctKm);
+  if (document.activeElement !== $("#b-meta")) $("#b-meta").value = meta || "";
+  const sem = semanasSeguidas(b.viagens);
+  $("#b-semanas").textContent = sem ? `${sem} ${sem === 1 ? "semana seguida" : "semanas seguidas"} a pedalar` : "";
   $("#b-total").innerHTML = tot.n ? `Desde ${esc(fmt(inicio, {day:"numeric", month:"long", year:"numeric"}))}: <strong>${tot.n} ${tot.n === 1 ? "viagem" : "viagens"}</strong>, ${esc((Math.round(tot.km * 10) / 10).toLocaleString("pt-PT"))} km, <strong>${esc(euros(Math.round(tot.euros * 100) / 100))}</strong> poupados, ${esc(kg(tot.co2))} de CO₂ e ${esc((Math.round(tot.litros * 10) / 10).toLocaleString("pt-PT"))} L de combustível que não foram gastos.` : "Registe a primeira viagem de bicicleta para começar a contar.";
   const p1 = poupanca(c, 1);
   $("#b-por-km").textContent = `Com estes valores, cada km de bicicleta poupa ${euros(Math.round(p1.euros * 1000) / 1000)}${num(c.estacionamento) ? ` (mais ${euros(c.estacionamento)} de estacionamento por viagem)` : ""} e ${Math.round(p1.co2 * 1000)} g de CO₂${c.nome ? ` face ao ${c.nome}` : ""}.`;

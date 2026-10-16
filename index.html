@@ -223,6 +223,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
         <h2 id="f-titulo">Fecho do mês</h2>
         <p class="small" id="f-resumo"></p>
         <div class="meta" id="f-acima"></div>
+        <p class="small" id="f-super"></p>
         <div id="f-grafico"></div>
       </div>
     </div>
@@ -998,6 +999,13 @@ function renderFecho(){
   }
   const acima = o.linhas.map(l => ({l, v: o.meses[mesSel]?.[l.id]})).filter(x => x.v != null && num(x.v) - num(x.l.teto) >= 1).sort((a, b) => (num(b.v) - num(b.l.teto)) - (num(a.v) - num(a.l.teto)));
   $("#f-acima").innerHTML = acima.length ? `<span class="small">Acima do teto:</span>` + acima.map(x => `<span class="chip late">${esc(x.l.nome)} +${esc(eurCurto(num(x.v) - num(x.l.teto)))}</span>`).join("") : "";
+  /* Supermarket trips: each imported purchase in the category named "Supermercado" is one trip. */
+  const sup = o.linhas.find(l => /supermercado/i.test(l.nome)), idas = m => (o.movimentos[m] || []).filter(x => sup && x.linha === sup.id && x.valor > 0);
+  const ant = (() => { const d = parse(mesSel + "-01"); d.setMonth(d.getMonth() - 1); return iso(d).slice(0, 7); })();
+  const ia = idas(mesSel), ib = idas(ant), tot = ia.reduce((t, x) => t + x.valor, 0);
+  $("#f-super").innerHTML = !sup || !ia.length ? "" : `Supermercado: <strong>${ia.length} idas</strong>, ${esc(euros(Math.round(tot / ia.length * 100) / 100))} em média por compra, ${ia.filter(x => x.valor < 15).length} de menos de 15 €.` +
+    (ib.length ? ` No mês anterior: ${ib.length} idas${ia.length < ib.length ? " — menos idas, bom sinal." : ia.length > ib.length ? "." : ", igual."}` : "") +
+    ` Objetivo: uma compra grande por semana e uma pequena (cerca de 8 por mês).`;
   const meses = Array.from({length: 6}, (_, k) => { const d = parse(mesSel + "-01"); d.setMonth(d.getMonth() - 5 + k); return iso(d).slice(0, 7); });
   const itens = meses.map(m => ({rotulo: mesCurto(m), valor: gastoMes(o, m).total, atual: m === mesSel}));
   $("#f-grafico").innerHTML = itens.some(i => i.valor) ? grafBarras(itens, planeado, `Planeado ${eurCurto(planeado)}`, `Gasto registado nos últimos 6 meses, até ${nomeMes}`) : "";

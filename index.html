@@ -204,7 +204,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
     <div class="panel">
       <div class="block">
         <h2>Importar do banco</h2>
-        <p class="muted small">Escolha os ficheiros: movimentos do cartão Santander (.xls), extrato da conta (.pdf), extrato da Revolut (.csv) e faturas do e-fatura (.csv, para o IRS). São lidos só neste aparelho e os gastos de cada mês ficam preenchidos. Importar o mesmo ficheiro duas vezes não duplica nada.</p>
+        <p class="muted small">Escolha os ficheiros: movimentos do cartão Santander (.xls), movimentos ou extrato da conta (.xls ou .pdf), extrato da Revolut (.csv) e faturas do e-fatura (.csv, para o IRS). São lidos só neste aparelho e os gastos de cada mês ficam preenchidos. Importar o mesmo ficheiro duas vezes não duplica nada.</p>
         <div class="actions">
           <button class="btn primary" id="btn-imp-mov">Importar ficheiros</button>
           <input type="file" id="f-imp-mov" multiple accept=".xls,.xlsx,.pdf,.csv" hidden>
@@ -250,6 +250,7 @@ code{font-size:.85em;background:var(--surface-2);border:1px solid var(--line);bo
         </div>
         <p class="small" id="irs-resumo"></p>
         <div class="list" id="irs-lista"></div>
+        <div id="irs-erros"></div>
         <label class="fl" style="max-width:20rem">Pessoas que entregam IRS com estas faturas<input id="irs-sujeitos" type="number" min="1" max="2" step="1" inputmode="numeric"></label>
         <p class="muted small">Importe o CSV de cada pessoa do agregado em <a href="https://faturas.portaldasfinancas.gov.pt/" target="_blank" rel="noopener">e-fatura</a> → Consultar faturas → Exportar (pode importar de novo para atualizar as pendentes). Estimativa com as regras gerais que conheço (despesas gerais 35% até 250 € por pessoa; saúde 15% até 1 000 €; educação 30% até 800 €; IVA de oficinas, restaurantes e cabeleireiros 15% e dos passes 100%, até 250 €): os limites mudam, confirme no Portal das Finanças.</p>
       </div>
@@ -1134,7 +1135,8 @@ async function lerXls(buf){
   const wb = XLSX.read(buf, {type: "array", cellDates: true});
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: ""});
   if (rows.some(r => /posi[cç][aã]o integrada/i.test(r[0])) && rows.some(r => /bancoinvest/i.test(r[0]))) return lerPosicaoInvest(rows);
-  const h = rows.findIndex(r => r.some(c => /^data$/i.test(String(c).trim())) && r.some(c => /montante/i.test(c)));
+  if (rows.some(r => r.some(c => /^data opera/i.test(String(c).trim())))) return lerContaXls(rows);
+  const h =rows.findIndex(r => r.some(c => /^data$/i.test(String(c).trim())) && r.some(c => /montante/i.test(c)));
   if (h < 0) throw new Error("Não reconheço este .xls.");
   const cab = rows[h].map(c => String(c).trim().toLowerCase());
   const iData = cab.indexOf("data"), iDesc = cab.findIndex(c => c.startsWith("descri")), iVal = cab.findIndex(c => c.startsWith("montante")), iMov = cab.findIndex(c => c.startsWith("movimento"));
@@ -1148,6 +1150,26 @@ async function lerXls(buf){
     out.push({k: `c|${r[iMov]}|${data}|${v}`, data, desc: String(r[iDesc]).trim().replace(/\s+/g, " "), valor: v});
   }
   return {movs: out, saldos: []};
+}
+
+/* Account movements (.xls): header row "Data Operação | Data valor | Descrição | Montante( EUR ) | Saldo Contabilístico( EUR )", newest first.
+   Same account as the PDF statement, so movements get the "a|" keys; the newest balance updates "DEPÓSITOS À ORDEM". */
+function lerContaXls(rows){
+  const h = rows.findIndex(r => r.some(c => /^data opera/i.test(String(c).trim())));
+  const cab = rows[h].map(c => String(c).trim().toLowerCase());
+  const iData = cab.findIndex(c => c.startsWith("data opera")), iDesc = cab.findIndex(c => c.startsWith("descri")), iVal = cab.findIndex(c => c.startsWith("montante")), iSaldo = cab.findIndex(c => c.startsWith("saldo"));
+  const out = [], vistos = {}, saldos = [];
+  for (const r of rows.slice(h + 1)){
+    const d = r[iData], m = String(d).match(/^(\d\d)-(\d\d)-(\d{4})$/), data = d instanceof Date ? iso(d) : m && dataIso(m[1], m[2], m[3]);
+    if (!data) continue;
+    const eur = c => typeof c === "number" ? c : valorPt(c);
+    if (!saldos.length && iSaldo >= 0 && r[iSaldo] !== "") saldos.push({rotulo: "DEPÓSITOS À ORDEM", valor: Math.abs(eur(r[iSaldo])), data});
+    const v = Math.round(-eur(r[iVal]) * 100) / 100; if (!(v > 0)) continue; /* money in: salaries, refunds, own transfers */
+    const desc = String(r[iDesc]).trim().replace(/\s+/g, " "), base = `a|${data}|${desc}|${v}`; vistos[base] = (vistos[base] || 0) + 1;
+    out.push({k: `${base}|${vistos[base]}`, data, desc, valor: v});
+  }
+  if (!out.length && !saldos.length) throw new Error("Este .xls da conta não tem movimentos.");
+  return {movs: out, saldos};
 }
 
 /* Banco Invest "Posição Integrada" (.xlsx): a date, then "Product | SALDO EUR | PESO %" rows. Labels become "BANCO INVEST <product>". */
@@ -1268,13 +1290,27 @@ function deducoes(fs, sujeitos){
     {nome: "IVA (oficinas, restaurantes, cabeleireiros, passes)", despesa: ivaPasses + ivaOutros, deducao: Math.min(ivaPasses + ivaOutros * 0.15, 250), limite: 250, iva: true}
   ];
 }
+/* Supermarket and shop invoices put in the restaurant/lodging sector: that IVA deduction is not theirs.
+   Shops by trade name and legal name (Decathlon invoices as Spdad); stores with a restaurant inside (IKEA, El Corte Inglés) are left out. */
+const SUPERMERCADO = /supermercad|hipermercad|minimercad|mercearia|continente|pingo doce|lidl|\baldi\b|intermarch|itmp|auchan|minipre[cç]o|dia portugal|mercadona|meu super|coviran|\bspar\b|recheio|makro|froiz|leclerc|apol[oó]nia|amanhecer/i;
+const LOJA = /decathlon|spdad|sport zone|worten|fnac|media ?markt|r[aá]dio popular|leroy merlin|\baki\b|bricomarch|maxmat|primark|zara|\bh ?& ?m\b|hennes|wells|staples|\bnote!|bertrand|farm[aá]cia/i;
+function faturasMalClassificadas(fs){
+  return fs.filter(f => /restaura|alojamento/i.test(f.setor) && (SUPERMERCADO.test(f.emitente || "") || LOJA.test(f.emitente || ""))).sort((a, b) => a.data < b.data ? -1 : 1);
+}
 function renderIrs(){
   const irs = S.irs || {faturas: [], sujeitos: 1}, anos = [...new Set(irs.faturas.map(f => f.data.slice(0, 4)))].sort().reverse();
   if (!anos.includes(irsAno) && anos.length) irsAno = anos[0];
   $("#irs-ano").innerHTML = (anos.length ? anos : [irsAno]).map(a => `<option ${a === irsAno ? "selected" : ""}>${a}</option>`).join("");
   if (document.activeElement !== $("#irs-sujeitos")) $("#irs-sujeitos").value = irs.sujeitos || 1;
   const fs = irs.faturas.filter(f => f.data.startsWith(irsAno));
-  if (!fs.length){ $("#irs-resumo").textContent = "Importe os CSV do e-fatura para estimar as deduções do ano."; $("#irs-lista").innerHTML = ""; return; }
+  if (!fs.length){ $("#irs-resumo").textContent = "Importe os CSV do e-fatura para estimar as deduções do ano."; $("#irs-lista").innerHTML = ""; $("#irs-erros").innerHTML = ""; return; }
+  const mal = faturasMalClassificadas(fs), malIva = mal.reduce((t, f) => t + num(f.iva), 0), malTotal = mal.reduce((t, f) => t + num(f.total), 0);
+  $("#irs-erros").innerHTML = mal.length ? `<p class="small" style="margin-top:10px"><span class="chip late">${mal.length} de supermercados e lojas em restauração</span>
+      ${esc(euros(Math.round(malTotal)))} em compras (IVA ${esc(euros(Math.round(malIva * 100) / 100))}), que somam cerca de <strong>${esc(euros(Math.round(malIva * 0.15 * 100) / 100))}</strong> à dedução sem direito. Mude o setor para «Outros» (ou «Saúde», se for de farmácia) no e-fatura (até 25 de fevereiro do ano seguinte); num ano já entregue, corrija com uma declaração de substituição.</p>
+    <details><summary class="small" style="cursor:pointer;font-weight:700">Ver faturas</summary><div class="list">${mal.map(f => `<div class="row"><div class="grow">
+      <span class="title">${esc(String(f.emitente).replace(/^\d+\s*-\s*/, ""))}</span>
+      <span class="muted small">${esc(f.data)} · ${esc(String(f.k).split("|")[1] || "")} · ${esc(f.setor)} · IVA ${esc(euros(num(f.iva)))}</span>
+    </div><span class="valor">${esc(euros(num(f.total)))}</span></div>`).join("")}</div></details>` : "";
   const ds = deducoes(fs, Math.max(1, num(irs.sujeitos) || 1)), total = ds.reduce((t, x) => t + x.deducao, 0);
   const pend = fs.filter(f => /pendente/i.test(f.situacao)), semSetor = fs.filter(f => !f.setor);
   $("#irs-resumo").innerHTML = `${fs.length} faturas em ${esc(irsAno)}. Dedução estimada: <strong>${esc(euros(Math.round(total)))}</strong>.` +
@@ -1289,13 +1325,19 @@ function renderIrs(){
 $("#irs-ano").addEventListener("change", e => { irsAno = e.target.value; renderIrs(); });
 $("#irs-sujeitos").addEventListener("change", e => { const v = Math.min(2, Math.max(1, Math.round(num(e.target.value)) || 1)); mutate(d => { (d.irs ||= {faturas: [], sujeitos: 1}).sujeitos = v; }, "IRS: pessoas no agregado").catch(() => {}); });
 
+/* Checked after the user's rules: transfers to the joint Revolut account ("Coletiva-E00899559") only move money between own
+   accounts, and what is spent there comes in with that account's CSV. */
+const REGRAS_BASE = [{re: "^Coletiva-E\\d", linha: "ignorar"}];
 function classificar(regras, desc){
-  for (const r of regras){ try { if (new RegExp(r.re, "i").test(desc)) return r.linha; } catch {} }
+  for (const r of [...regras, ...REGRAS_BASE]){ try { if (new RegExp(r.re, "i").test(desc)) return r.linha; } catch {} }
   return null;
 }
 /* A rule from a description: the merchant words, without card numbers and references. */
 function chave(desc){
-  const ws = desc.replace(/^COMPRA\s+\S*\*\d{4}\s+/i, "").split(/\s+/).map(w => /^\d{5}-\d+$/.test(w) ? w.slice(0, 5) : w).filter(w => !/\d/.test(w) || /^\d{5}$/.test(w));
+  /* Revolut moves to a pocket ("Carregamento de subconta EUR Férias de EUR"; in English "To pocket EUR Férias from EUR"): one rule per pocket. */
+  const sub = desc.match(/(?:subconta|pocket) EUR (.+?) (?:de|from) EUR/i);
+  if (sub) return `(subconta|pocket) EUR ${sub[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} (de|from) EUR`;
+  const ws =desc.replace(/^COMPRA\s+\S*\*\d{4}\s+/i, "").replace(/-E\d+$/, "").split(/\s+/).map(w => /^\d{5}-\d+$/.test(w) ? w.slice(0, 5) : w).filter(w => !/\d/.test(w) || /^\d{5}$/.test(w));
   return ws.slice(0, 3).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*?") || desc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 /* Month totals per category from the imported movements; categories filled by hand stay as they are. */
@@ -1330,9 +1372,14 @@ $("#f-imp-mov").addEventListener("change", async e => {
     const o = d.orcamento; novos = porClass = 0;
     saldosNovos = aplicarSaldos(d.patrimonio, saldos);
     if (faturas.length) fat = juntarFaturas(d, faturas);
+    /* The account's PDF and .xls describe the same movement in different words: the n-th movement of an amount on a day
+       is already there if the month has n account movements ("a|") of that amount on that day. */
+    const vez = {};
     for (const mv of movs){
       const mes = mv.data.slice(0, 7), lista = o.movimentos[mes] ||= [];
+      const conta = mv.k.startsWith("a|"), dv = `${mv.data}|${mv.valor}`; if (conta) vez[dv] = (vez[dv] || 0) + 1;
       if (lista.some(x => x.k === mv.k)) continue;
+      if (conta && lista.filter(x => x.k.startsWith("a|") && x.data === mv.data && x.valor === mv.valor).length >= vez[dv]) continue;
       mv.linha = classificar(o.regras, mv.desc); lista.push(mv); novos++; meses.add(mes);
       if (!mv.linha) porClass++;
     }
